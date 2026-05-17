@@ -24,5 +24,9 @@ def create_app(state: AppState) -> FastAPI:
             "parquet_synced_at": state.parquet_synced_at.isoformat(),
         }
 
+    @router.get("/sets")
+    async def sets() -> dict:
+        return {"sets": state.store.set_list()}
+
     app.include_router(router)
     return app

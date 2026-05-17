@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timezone
+from datetime import UTC
 from pathlib import Path
 
 import boto3
@@ -13,8 +13,12 @@ from cv_inventory.config import R2Config
 log = logging.getLogger(__name__)
 
 PARQUET_NAMES = (
-    "products.parquet", "skus.parquet", "groups.parquet",
-    "conditions.parquet", "printings.parquet", "languages.parquet",
+    "products.parquet",
+    "skus.parquet",
+    "groups.parquet",
+    "conditions.parquet",
+    "printings.parquet",
+    "languages.parquet",
     "rarities.parquet",
 )
 
@@ -45,7 +49,7 @@ def sync_parquets(cfg: R2Config, category: int, cache_dir: Path) -> dict[str, Pa
         paths[name] = local
 
         head = s3.head_object(Bucket=cfg.bucket, Key=key)
-        remote_mtime = head["LastModified"].astimezone(timezone.utc).timestamp()
+        remote_mtime = head["LastModified"].astimezone(UTC).timestamp()
 
         if local.exists() and local.stat().st_mtime >= remote_mtime:
             log.info("Skipping %s (local is fresh)", name)

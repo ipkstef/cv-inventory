@@ -12,12 +12,25 @@ def test_export_returns_csv_with_correct_headers(synthetic_catalog, synthetic_pa
     client = TestClient(create_app(state))
     r = client.post(
         "/export/tcgplayer-csv",
-        json={"rows": [
-            {"product_id": 1001, "printing": "Normal", "condition": "Near Mint",
-             "language": "English", "quantity": 1, "marketplace_price": 0.99},
-            {"product_id": 1002, "printing": "Foil", "condition": "Lightly Played",
-             "language": "English", "quantity": 4},
-        ]},
+        json={
+            "rows": [
+                {
+                    "product_id": 1001,
+                    "printing": "Normal",
+                    "condition": "Near Mint",
+                    "language": "English",
+                    "quantity": 1,
+                    "marketplace_price": 0.99,
+                },
+                {
+                    "product_id": 1002,
+                    "printing": "Foil",
+                    "condition": "Lightly Played",
+                    "language": "English",
+                    "quantity": 4,
+                },
+            ]
+        },
         headers={"Authorization": "Bearer k"},
     )
     assert r.status_code == 200

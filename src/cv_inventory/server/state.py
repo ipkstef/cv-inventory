@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from collector_vision import Catalog, NeuralEmbedder
+
 from cv_inventory.back_rejector import BackRejector
 from cv_inventory.config import Config
 from cv_inventory.pipeline import IdentifyPipeline
@@ -35,9 +36,7 @@ class AppState:
         embedder = NeuralEmbedder()
         index = SetIndex.build(catalog, store)
         back = BackRejector.load(back_image, embedder)
-        pipeline = IdentifyPipeline(
-            embedder=embedder, index=index, store=store, back_rejector=back
-        )
+        pipeline = IdentifyPipeline(embedder=embedder, index=index, store=store, back_rejector=back)
         return cls(
             api_key=config.api_key,
             catalog=catalog,
@@ -46,7 +45,7 @@ class AppState:
             store=store,
             set_index=index,
             pipeline=pipeline,
-            parquet_synced_at=datetime.now(timezone.utc),
+            parquet_synced_at=datetime.now(UTC),
         )
 
     @classmethod
@@ -57,9 +56,7 @@ class AppState:
         embedder = NeuralEmbedder()
         index = SetIndex.build(catalog, store)
         back = BackRejector.load(None, embedder)
-        pipeline = IdentifyPipeline(
-            embedder=embedder, index=index, store=store, back_rejector=back
-        )
+        pipeline = IdentifyPipeline(embedder=embedder, index=index, store=store, back_rejector=back)
         return cls(
             api_key=api_key,
             catalog=catalog,
@@ -68,5 +65,5 @@ class AppState:
             store=store,
             set_index=index,
             pipeline=pipeline,
-            parquet_synced_at=datetime.now(timezone.utc),
+            parquet_synced_at=datetime.now(UTC),
         )

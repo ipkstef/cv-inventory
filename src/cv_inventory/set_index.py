@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-
 from collector_vision import Catalog
+
 from cv_inventory.tcgplayer.store import TCGStore
 
 

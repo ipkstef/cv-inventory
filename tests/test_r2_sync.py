@@ -8,8 +8,12 @@ from cv_inventory.config import R2Config
 from cv_inventory.tcgplayer.r2_sync import sync_parquets
 
 PARQUET_NAMES = [
-    "products.parquet", "skus.parquet", "groups.parquet",
-    "conditions.parquet", "printings.parquet", "languages.parquet",
+    "products.parquet",
+    "skus.parquet",
+    "groups.parquet",
+    "conditions.parquet",
+    "printings.parquet",
+    "languages.parquet",
     "rarities.parquet",
 ]
 
@@ -27,8 +31,9 @@ def fake_r2(monkeypatch):
 
 
 def test_sync_downloads_all_seven_parquets(fake_r2, tmp_path):
-    cfg = R2Config(access_key="ak", secret_key="sk",
-                   endpoint_url="http://fake.r2.cloudflarestorage.com")
+    cfg = R2Config(
+        access_key="ak", secret_key="sk", endpoint_url="http://fake.r2.cloudflarestorage.com"
+    )
     cache = tmp_path / "cache"
 
     paths = sync_parquets(cfg, category=1, cache_dir=cache)
@@ -39,8 +44,9 @@ def test_sync_downloads_all_seven_parquets(fake_r2, tmp_path):
 
 
 def test_sync_skips_when_local_is_fresh(fake_r2, tmp_path):
-    cfg = R2Config(access_key="ak", secret_key="sk",
-                   endpoint_url="http://fake.r2.cloudflarestorage.com")
+    cfg = R2Config(
+        access_key="ak", secret_key="sk", endpoint_url="http://fake.r2.cloudflarestorage.com"
+    )
     cache = tmp_path / "cache"
 
     sync_parquets(cfg, category=1, cache_dir=cache)

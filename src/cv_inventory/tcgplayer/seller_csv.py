@@ -9,10 +9,22 @@ from collections.abc import Iterable
 from cv_inventory.tcgplayer.store import TCGStore
 
 SELLER_COLUMNS = [
-    "TCGplayer Id", "Product Line", "Set Name", "Product Name", "Title", "Number",
-    "Rarity", "Condition", "TCG Market Price", "TCG Direct Low",
-    "TCG Low Price With Shipping", "TCG Low Price", "Total Quantity",
-    "Add to Quantity", "TCG Marketplace Price", "Photo URL",
+    "TCGplayer Id",
+    "Product Line",
+    "Set Name",
+    "Product Name",
+    "Title",
+    "Number",
+    "Rarity",
+    "Condition",
+    "TCG Market Price",
+    "TCG Direct Low",
+    "TCG Low Price With Shipping",
+    "TCG Low Price",
+    "Total Quantity",
+    "Add to Quantity",
+    "TCG Marketplace Price",
+    "Photo URL",
 ]
 
 
@@ -42,23 +54,25 @@ def build_seller_csv(store: TCGStore, rows: Iterable[dict]) -> bytes:
             condition=r["condition"],
             language=r["language"],
         )
-        writer.writerow({
-            "TCGplayer Id": "" if sku is None else str(sku["sku_id"]),
-            "Product Line": "Magic",
-            "Set Name": product["set_name"] or "",
-            "Product Name": product["name"] or "",
-            "Title": "",
-            "Number": product["collector_number"] or "",
-            "Rarity": product["rarity"] or "",
-            "Condition": r["condition"],
-            "TCG Market Price": _fmt_money(sku["market_price"]) if sku else "",
-            "TCG Direct Low": _fmt_money(sku["direct_low_price"]) if sku else "",
-            "TCG Low Price With Shipping": "",
-            "TCG Low Price": _fmt_money(sku["low_price"]) if sku else "",
-            "Total Quantity": str(int(r["quantity"])),
-            "Add to Quantity": "",
-            "TCG Marketplace Price": _fmt_money(r.get("marketplace_price")),
-            "Photo URL": product["image_url"] or "",
-        })
+        writer.writerow(
+            {
+                "TCGplayer Id": "" if sku is None else str(sku["sku_id"]),
+                "Product Line": "Magic",
+                "Set Name": product["set_name"] or "",
+                "Product Name": product["name"] or "",
+                "Title": "",
+                "Number": product["collector_number"] or "",
+                "Rarity": product["rarity"] or "",
+                "Condition": r["condition"],
+                "TCG Market Price": _fmt_money(sku["market_price"]) if sku else "",
+                "TCG Direct Low": _fmt_money(sku["direct_low_price"]) if sku else "",
+                "TCG Low Price With Shipping": "",
+                "TCG Low Price": _fmt_money(sku["low_price"]) if sku else "",
+                "Total Quantity": str(int(r["quantity"])),
+                "Add to Quantity": "",
+                "TCG Marketplace Price": _fmt_money(r.get("marketplace_price")),
+                "Photo URL": product["image_url"] or "",
+            }
+        )
 
     return buf.getvalue().encode("utf-8")

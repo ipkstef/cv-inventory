@@ -44,4 +44,6 @@ def test_store_resolve_sku_returns_matching_sku(synthetic_parquets):
 
 def test_store_resolve_sku_returns_none_when_missing(synthetic_parquets):
     store = TCGStore.load(synthetic_parquets)
-    assert store.resolve_sku(1001, printing="Normal", condition="Damaged", language="English") is None
+    assert (
+        store.resolve_sku(1001, printing="Normal", condition="Damaged", language="English") is None
+    )

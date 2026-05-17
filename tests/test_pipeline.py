@@ -1,6 +1,6 @@
+from collector_vision import Catalog, NeuralEmbedder
 from PIL import Image
 
-from collector_vision import Catalog, NeuralEmbedder
 from cv_inventory.back_rejector import BackRejector
 from cv_inventory.pipeline import IdentifyPipeline
 from cv_inventory.set_index import SetIndex

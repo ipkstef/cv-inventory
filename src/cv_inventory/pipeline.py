@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from collector_vision import NeuralEmbedder, rotate_card_180
 from PIL import Image
 
-from collector_vision import NeuralEmbedder, rotate_card_180
 from cv_inventory.back_rejector import BackRejector
 from cv_inventory.set_index import SetIndex
 from cv_inventory.tcgplayer.store import TCGStore
@@ -77,15 +77,17 @@ class IdentifyPipeline:
             p = self._store.product(product_id)
             if p is None:
                 continue
-            candidates.append(Candidate(
-                product_id=product_id,
-                score=float(score),
-                name=p["name"],
-                set_name=p["set_name"] or "",
-                set_abbr=p["set_abbr"] or "",
-                group_id=p["group_id"],
-                collector_number=p["collector_number"],
-                rarity=p["rarity"],
-                image_url=p["image_url"] or "",
-            ))
+            candidates.append(
+                Candidate(
+                    product_id=product_id,
+                    score=float(score),
+                    name=p["name"],
+                    set_name=p["set_name"] or "",
+                    set_abbr=p["set_abbr"] or "",
+                    group_id=p["group_id"],
+                    collector_number=p["collector_number"],
+                    rarity=p["rarity"],
+                    image_url=p["image_url"] or "",
+                )
+            )
         return IdentifyResult(is_card_back=False, candidates=candidates)

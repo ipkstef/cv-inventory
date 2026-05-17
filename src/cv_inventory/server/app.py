@@ -80,17 +80,23 @@ def create_app(state: AppState) -> FastAPI:
                 image = await fetch_image(item.image_url)
             except FetchError as e:
                 return {
-                    "id": item.id, "is_card_back": False, "candidates": [],
+                    "id": item.id,
+                    "is_card_back": False,
+                    "candidates": [],
                     "error": f"fetch failed: {e}",
                 }
             try:
                 result = state.pipeline.identify(
-                    image=image, set_id=req.set_id, top_k=req.top_k,
+                    image=image,
+                    set_id=req.set_id,
+                    top_k=req.top_k,
                     rotation_invariant=req.rotation_invariant,
                 )
             except KeyError as e:
                 return {
-                    "id": item.id, "is_card_back": False, "candidates": [],
+                    "id": item.id,
+                    "is_card_back": False,
+                    "candidates": [],
                     "error": str(e),
                 }
             return {
@@ -116,7 +122,10 @@ def create_app(state: AppState) -> FastAPI:
         if state.store.product(product_id) is None:
             raise HTTPException(status_code=404, detail=f"Unknown product_id {product_id}")
         sku = state.store.resolve_sku(
-            product_id, printing=req.printing, condition=req.condition, language=req.language,
+            product_id,
+            printing=req.printing,
+            condition=req.condition,
+            language=req.language,
         )
         if sku is None:
             raise HTTPException(

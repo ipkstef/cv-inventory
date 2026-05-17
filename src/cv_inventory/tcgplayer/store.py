@@ -61,8 +61,13 @@ class TCGStore:
         languages = dict(zip(languages_df["language_id"], languages_df["name"]))
 
         return cls(
-            products=products, skus=skus, groups=groups,
-            rarities=rarities, printings=printings, conditions=conditions, languages=languages,
+            products=products,
+            skus=skus,
+            groups=groups,
+            rarities=rarities,
+            printings=printings,
+            conditions=conditions,
+            languages=languages,
             printing_name_to_id={v: k for k, v in printings.items()},
             condition_name_to_id={v: k for k, v in conditions.items()},
             language_name_to_id={v: k for k, v in languages.items()},
@@ -71,8 +76,12 @@ class TCGStore:
     def set_list(self) -> list[dict]:
         df = self._groups.sort_values(by=["is_current", "name"], ascending=[False, True])
         return [
-            {"group_id": int(r.group_id), "name": r.name, "abbr": r.abbr,
-             "is_current": bool(r.is_current)}
+            {
+                "group_id": int(r.group_id),
+                "name": r.name,
+                "abbr": r.abbr,
+                "is_current": bool(r.is_current),
+            }
             for r in df.itertuples(index=False)
         ]
 
@@ -88,7 +97,9 @@ class TCGStore:
             "group_id": int(row.group_id),
             "set_name": group["name"],
             "set_abbr": group["abbr"],
-            "collector_number": None if pd.isna(row.collector_number) else str(row.collector_number),
+            "collector_number": None
+            if pd.isna(row.collector_number)
+            else str(row.collector_number),
             "rarity": self._rarities.get(row.rarity_id) if not pd.isna(row.rarity_id) else None,
             "is_sealed": bool(row.is_sealed),
             "image_url": row.image_url,
@@ -99,16 +110,20 @@ class TCGStore:
         rows = self._skus_by_product.get(int(product_id), [])
         return [self._sku_to_dict(r) for r in rows]
 
-    def resolve_sku(self, product_id: int, printing: str, condition: str, language: str) -> dict | None:
+    def resolve_sku(
+        self, product_id: int, printing: str, condition: str, language: str
+    ) -> dict | None:
         printing_id = self._printing_name_to_id.get(printing)
         condition_id = self._condition_name_to_id.get(condition)
         language_id = self._language_name_to_id.get(language)
         if None in (printing_id, condition_id, language_id):
             return None
         for r in self._skus_by_product.get(int(product_id), []):
-            if (int(r.printing_id) == printing_id
-                    and int(r.condition_id) == condition_id
-                    and int(r.language_id) == language_id):
+            if (
+                int(r.printing_id) == printing_id
+                and int(r.condition_id) == condition_id
+                and int(r.language_id) == language_id
+            ):
                 return self._sku_to_dict(r)
         return None
 

@@ -1,6 +1,6 @@
 import pytest
-
 from collector_vision import Catalog
+
 from cv_inventory.set_index import SetIndex
 from cv_inventory.tcgplayer.store import TCGStore
 

@@ -5,10 +5,22 @@ from cv_inventory.tcgplayer.seller_csv import build_seller_csv
 from cv_inventory.tcgplayer.store import TCGStore
 
 SELLER_COLUMNS = [
-    "TCGplayer Id", "Product Line", "Set Name", "Product Name", "Title", "Number",
-    "Rarity", "Condition", "TCG Market Price", "TCG Direct Low",
-    "TCG Low Price With Shipping", "TCG Low Price", "Total Quantity",
-    "Add to Quantity", "TCG Marketplace Price", "Photo URL",
+    "TCGplayer Id",
+    "Product Line",
+    "Set Name",
+    "Product Name",
+    "Title",
+    "Number",
+    "Rarity",
+    "Condition",
+    "TCG Market Price",
+    "TCG Direct Low",
+    "TCG Low Price With Shipping",
+    "TCG Low Price",
+    "Total Quantity",
+    "Add to Quantity",
+    "TCG Marketplace Price",
+    "Photo URL",
 ]
 
 
@@ -22,10 +34,19 @@ def test_csv_header_matches_tcgplayer_template(synthetic_parquets):
 
 def test_csv_resolves_sku_and_fills_columns(synthetic_parquets):
     store = TCGStore.load(synthetic_parquets)
-    csv_bytes = build_seller_csv(store, rows=[
-        {"product_id": 1001, "printing": "Normal", "condition": "Near Mint",
-         "language": "English", "quantity": 2, "marketplace_price": 1.49},
-    ])
+    csv_bytes = build_seller_csv(
+        store,
+        rows=[
+            {
+                "product_id": 1001,
+                "printing": "Normal",
+                "condition": "Near Mint",
+                "language": "English",
+                "quantity": 2,
+                "marketplace_price": 1.49,
+            },
+        ],
+    )
     reader = csv.DictReader(io.StringIO(csv_bytes.decode("utf-8")))
     rows = list(reader)
     assert len(rows) == 1
@@ -44,10 +65,18 @@ def test_csv_resolves_sku_and_fills_columns(synthetic_parquets):
 
 def test_csv_unresolvable_row_blanks_sku(synthetic_parquets):
     store = TCGStore.load(synthetic_parquets)
-    csv_bytes = build_seller_csv(store, rows=[
-        {"product_id": 1001, "printing": "Normal", "condition": "Damaged",
-         "language": "English", "quantity": 1},
-    ])
+    csv_bytes = build_seller_csv(
+        store,
+        rows=[
+            {
+                "product_id": 1001,
+                "printing": "Normal",
+                "condition": "Damaged",
+                "language": "English",
+                "quantity": 1,
+            },
+        ],
+    )
     reader = csv.DictReader(io.StringIO(csv_bytes.decode("utf-8")))
     rows = list(reader)
     assert rows[0]["TCGplayer Id"] == ""

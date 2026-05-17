@@ -32,3 +32,16 @@ def test_config_missing_api_key_raises(monkeypatch):
 
     with pytest.raises(ConfigError, match="CV_INVENTORY_API_KEY"):
         Config.from_env()
+
+
+def test_synthetic_fixtures_load(synthetic_parquets, synthetic_catalog):
+    import numpy as np
+    import pandas as pd
+
+    products = pd.read_parquet(synthetic_parquets / "products.parquet")
+    assert len(products) == 5
+    assert products["is_sealed"].sum() == 1
+
+    data = np.load(synthetic_catalog, allow_pickle=False)
+    assert data["embeddings"].shape == (4, 128)
+    assert data["card_ids"].tolist() == ["1001", "1002", "1003", "2001"]

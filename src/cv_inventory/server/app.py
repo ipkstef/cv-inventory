@@ -12,6 +12,7 @@ from cv_inventory.server.schemas import (
     IdentifyBatchResponse,
     IdentifyRequest,
     IdentifyResponse,
+    ResolveSkuRequest,
 )
 from cv_inventory.server.state import AppState
 
@@ -99,6 +100,38 @@ def create_app(state: AppState) -> FastAPI:
 
         results = await asyncio.gather(*(one(i) for i in req.images))
         return {"results": list(results)}
+
+    @router.get("/products/{product_id}")
+    async def get_product(product_id: int) -> dict:
+        p = state.store.product(product_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail=f"Unknown product_id {product_id}")
+        p["skus"] = state.store.skus_for_product(product_id)
+        return p
+
+    @router.post("/products/{product_id}/resolve-sku")
+    async def resolve_sku(product_id: int, req: ResolveSkuRequest) -> dict:
+        if state.store.product(product_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown product_id {product_id}")
+        sku = state.store.resolve_sku(
+            product_id, printing=req.printing, condition=req.condition, language=req.language,
+        )
+        if sku is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No SKU for product {product_id} with printing={req.printing}, "
+                    f"condition={req.condition}, language={req.language}"
+                ),
+            )
+        return {
+            "sku_id": sku["sku_id"],
+            "market_price": sku["market_price"],
+            "low_price": sku["low_price"],
+            "mid_price": sku["mid_price"],
+            "high_price": sku["high_price"],
+            "direct_low_price": sku["direct_low_price"],
+        }
 
     app.include_router(router)
     return app

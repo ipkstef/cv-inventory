@@ -43,7 +43,15 @@ def test_build_catalog_filters_sealed_and_writes_npz(tmp_path):
                 headers={"content-type": "image/jpeg"},
             )
         )
-        build_catalog(products_parquet=products_path, out_path=out, image_cache=cache)
+        # rate kept high so the test runs fast; concurrency low to keep mock deterministic
+        build_catalog(
+            products_parquet=products_path,
+            out_path=out,
+            image_cache=cache,
+            rate=100.0,
+            concurrency=2,
+            batch_size=4,
+        )
 
     data = np.load(out, allow_pickle=False)
     assert data["embeddings"].shape == (2, 128)
@@ -51,3 +59,37 @@ def test_build_catalog_filters_sealed_and_writes_npz(tmp_path):
     spec = json.loads(str(data["embedder_spec"]))
     assert spec["kind"] == "neural"
     assert spec["algo_key"] == "milo1"
+
+
+def test_build_catalog_skips_already_cached(tmp_path):
+    products_path = tmp_path / "products.parquet"
+    pd.DataFrame(
+        {
+            "product_id": [1001],
+            "group_id": [100],
+            "name": ["A"],
+            "image_url": ["https://tcgplayer-cdn.tcgplayer.com/product/1001_200w.jpg"],
+            "is_sealed": [False],
+        }
+    ).to_parquet(products_path)
+    cache = tmp_path / "imgs"
+    cache.mkdir()
+    (cache / "1001.jpg").write_bytes(_png((50, 50, 50)))
+
+    with respx.mock(assert_all_called=False) as m:
+        # No network calls should fire — assert_all_called=False allows zero, but we also
+        # verify by not registering any 200 routes.
+        m.get(url__regex=r".*").mock(return_value=Response(500))
+        out = tmp_path / "catalog.npz"
+        build_catalog(
+            products_parquet=products_path,
+            out_path=out,
+            image_cache=cache,
+            rate=100.0,
+            concurrency=1,
+            batch_size=4,
+        )
+
+    data = np.load(out, allow_pickle=False)
+    assert data["embeddings"].shape == (1, 128)
+    assert data["card_ids"].tolist() == ["1001"]

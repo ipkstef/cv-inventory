@@ -1,10 +1,17 @@
-"""Build a TCGplayer-keyed embedding catalog from products.parquet."""
+"""Build a TCGplayer-keyed embedding catalog from products.parquet.
+
+Parallel downloads with a global rate limiter, serial embed.  Already-cached
+images are skipped, so the build is resumable: kill the process and restart
+with the same --image-cache path to continue.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
+import time
 from pathlib import Path
 
 import httpx
@@ -14,6 +21,8 @@ from collector_vision import NeuralEmbedder
 from PIL import Image
 
 log = logging.getLogger(__name__)
+
+USER_AGENT = "cv-inventory/0.1 (catalog-build; +https://github.com/ipkstef/cv-inventory)"
 
 
 def _high_res_url(product_id: int) -> str:
@@ -31,43 +40,128 @@ def _resize_letterbox(img: Image.Image, size: int = 448) -> Image.Image:
     return canvas
 
 
-def _download(client: httpx.Client, urls: list[str], dest: Path) -> bytes | None:
-    for url in urls:
+class _RateLimiter:
+    """Token-bucket-ish: acquire() returns at most once every 1/rate seconds across all callers."""
+
+    def __init__(self, rate: float) -> None:
+        self._min_interval = 1.0 / rate
+        self._next_allowed = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._next_allowed - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._next_allowed = max(self._next_allowed, now) + self._min_interval
+
+
+async def _download_one(
+    client: httpx.AsyncClient,
+    limiter: _RateLimiter,
+    pid: int,
+    fallback_url: str,
+    dest: Path,
+) -> bytes | None:
+    for url in (_high_res_url(pid), fallback_url):
+        await limiter.acquire()
         try:
-            r = client.get(url, timeout=15.0)
-            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
-                dest.write_bytes(r.content)
-                return r.content
-        except httpx.HTTPError:
+            r = await client.get(url, timeout=20.0)
+        except httpx.HTTPError as e:
+            log.debug("download error for %s: %s", url, e)
             continue
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+            dest.write_bytes(r.content)
+            return r.content
+        if r.status_code in (429, 503):
+            # Be polite: pause the whole pipeline briefly on backpressure.
+            log.warning("Backpressure %s on %s — sleeping 5s", r.status_code, url)
+            await asyncio.sleep(5)
     return None
 
 
-def build_catalog(products_parquet: Path, out_path: Path, image_cache: Path) -> None:
+async def _download_batch(
+    pending: list[tuple[int, str, Path]],
+    rate: float,
+    concurrency: int,
+) -> dict[int, bytes]:
+    """Download all (pid, url, dest) in pending; return {pid: bytes} for successes."""
+    limiter = _RateLimiter(rate)
+    sem = asyncio.Semaphore(concurrency)
+    results: dict[int, bytes] = {}
+
+    headers = {"User-Agent": USER_AGENT, "Accept": "image/*"}
+    async with httpx.AsyncClient(headers=headers, http2=False) as client:
+
+        async def worker(pid: int, url: str, dest: Path) -> None:
+            async with sem:
+                content = await _download_one(client, limiter, pid, url, dest)
+                if content is not None:
+                    results[pid] = content
+
+        await asyncio.gather(*(worker(pid, url, dest) for pid, url, dest in pending))
+
+    return results
+
+
+def build_catalog(
+    products_parquet: Path,
+    out_path: Path,
+    image_cache: Path,
+    *,
+    rate: float = 3.0,
+    concurrency: int = 4,
+    batch_size: int = 256,
+) -> None:
+    """Build a TCGplayer-keyed embedding catalog.
+
+    Network politeness: at most ``rate`` requests/sec across all workers,
+    cap of ``concurrency`` in-flight requests.  Default 3 req/s with 4
+    workers is sustainable on Cloudflare-fronted CDNs without tripping
+    abuse detection.
+    """
     image_cache.mkdir(parents=True, exist_ok=True)
     df = pd.read_parquet(products_parquet)
     df = df[df["is_sealed"] == False].copy()  # noqa: E712
     df = df[df["image_url"].notna()]
 
     embedder = NeuralEmbedder()
-    embeddings = []
+    embeddings: list[np.ndarray] = []
     ids: list[str] = []
 
-    with httpx.Client() as client:
-        for _, row in df.iterrows():
-            pid = int(row["product_id"])
-            cached = image_cache / f"{pid}.jpg"
-            if cached.exists():
-                content = cached.read_bytes()
+    rows = list(df.itertuples(index=False))
+    total = len(rows)
+    log.info(
+        "Building catalog from %d products (rate=%.1f req/s, concurrency=%d, batch=%d)",
+        total,
+        rate,
+        concurrency,
+        batch_size,
+    )
+
+    start = time.monotonic()
+    for batch_start in range(0, total, batch_size):
+        batch = rows[batch_start : batch_start + batch_size]
+
+        pending: list[tuple[int, str, Path]] = []
+        cached_now: dict[int, bytes] = {}
+        for row in batch:
+            pid = int(row.product_id)
+            dest = image_cache / f"{pid}.jpg"
+            if dest.exists():
+                cached_now[pid] = dest.read_bytes()
             else:
-                content = _download(
-                    client,
-                    [_high_res_url(pid), row["image_url"]],
-                    cached,
-                )
-                if content is None:
-                    log.warning("No image available for product %s — skipping", pid)
-                    continue
+                pending.append((pid, row.image_url, dest))
+
+        fetched = asyncio.run(_download_batch(pending, rate=rate, concurrency=concurrency))
+        cached_now.update(fetched)
+
+        for row in batch:
+            pid = int(row.product_id)
+            content = cached_now.get(pid)
+            if content is None:
+                continue
             try:
                 img = _resize_letterbox(Image.open(io.BytesIO(content)))
             except Exception as e:
@@ -77,6 +171,19 @@ def build_catalog(products_parquet: Path, out_path: Path, image_cache: Path) -> 
             emb = emb / np.linalg.norm(emb)
             embeddings.append(emb)
             ids.append(str(pid))
+
+        done = batch_start + len(batch)
+        elapsed = time.monotonic() - start
+        rate_actual = done / elapsed if elapsed > 0 else 0
+        eta_sec = (total - done) / rate_actual if rate_actual > 0 else 0
+        log.info(
+            "Progress %d/%d (%.1f%%) — %.2f products/s — ETA %.1f min",
+            done,
+            total,
+            100 * done / total,
+            rate_actual,
+            eta_sec / 60,
+        )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(

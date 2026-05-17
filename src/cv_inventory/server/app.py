@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from cv_inventory.image_fetch import FetchError, fetch_image
 from cv_inventory.server.auth import require_bearer
 from cv_inventory.server.schemas import (
+    ExportRequest,
     IdentifyBatchRequest,
     IdentifyBatchResponse,
     IdentifyRequest,
@@ -15,6 +16,7 @@ from cv_inventory.server.schemas import (
     ResolveSkuRequest,
 )
 from cv_inventory.server.state import AppState
+from cv_inventory.tcgplayer.seller_csv import build_seller_csv
 
 
 def _candidate_dicts(candidates) -> list[dict]:
@@ -132,6 +134,16 @@ def create_app(state: AppState) -> FastAPI:
             "high_price": sku["high_price"],
             "direct_low_price": sku["direct_low_price"],
         }
+
+    @router.post("/export/tcgplayer-csv")
+    async def export_csv(req: ExportRequest) -> Response:
+        rows = [r.model_dump() for r in req.rows]
+        body = build_seller_csv(state.store, rows)
+        return Response(
+            content=body,
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="tcgplayer-export.csv"'},
+        )
 
     app.include_router(router)
     return app

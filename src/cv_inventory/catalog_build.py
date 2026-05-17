@@ -105,6 +105,75 @@ async def _download_batch(
     return results
 
 
+def download_only(
+    products_parquet: Path,
+    image_cache: Path,
+    *,
+    rate: float = 10.0,
+    concurrency: int = 16,
+    batch_size: int = 1024,
+) -> None:
+    """Download all non-sealed product images into the cache. No embedding, no NPZ.
+
+    Use this first to populate the cache at high rate (download is the slow part),
+    then run :func:`build_catalog` to embed from the cache without network.
+    """
+    image_cache.mkdir(parents=True, exist_ok=True)
+    df = pd.read_parquet(products_parquet)
+    df = df[df["is_sealed"] == False].copy()  # noqa: E712
+    df = df[df["image_url"].notna()]
+    rows = list(df.itertuples(index=False))
+    total = len(rows)
+
+    log.info(
+        "Downloading images for %d products (rate=%.1f req/s, concurrency=%d, batch=%d)",
+        total,
+        rate,
+        concurrency,
+        batch_size,
+    )
+
+    start = time.monotonic()
+    cached_count = 0
+    fetched_count = 0
+    for batch_start in range(0, total, batch_size):
+        batch = rows[batch_start : batch_start + batch_size]
+        pending: list[tuple[int, str, Path]] = []
+        for row in batch:
+            pid = int(row.product_id)
+            dest = image_cache / f"{pid}.jpg"
+            if dest.exists():
+                cached_count += 1
+            else:
+                pending.append((pid, row.image_url, dest))
+
+        if pending:
+            fetched = asyncio.run(_download_batch(pending, rate=rate, concurrency=concurrency))
+            fetched_count += len(fetched)
+
+        done = batch_start + len(batch)
+        elapsed = time.monotonic() - start
+        rate_actual = done / elapsed if elapsed > 0 else 0
+        eta_sec = (total - done) / rate_actual if rate_actual > 0 else 0
+        log.info(
+            "Progress %d/%d (%.1f%%) — cached %d fetched %d — %.2f products/s — ETA %.1f min",
+            done,
+            total,
+            100 * done / total,
+            cached_count,
+            fetched_count,
+            rate_actual,
+            eta_sec / 60,
+        )
+
+    log.info(
+        "Done. Cached at start: %d, newly fetched: %d, total images in cache: %d",
+        cached_count,
+        fetched_count,
+        cached_count + fetched_count,
+    )
+
+
 def build_catalog(
     products_parquet: Path,
     out_path: Path,

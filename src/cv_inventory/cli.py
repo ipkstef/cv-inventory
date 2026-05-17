@@ -34,12 +34,33 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--products-parquet", required=True)
     build.add_argument("--out", required=True)
     build.add_argument("--image-cache", default="data/image_cache")
-    build.add_argument("--rate", type=float, default=3.0,
-                       help="Max image-CDN requests per second (default 3)")
-    build.add_argument("--concurrency", type=int, default=4,
-                       help="Max in-flight requests (default 4)")
-    build.add_argument("--batch-size", type=int, default=256,
-                       help="Products per download/embed batch (default 256)")
+    build.add_argument(
+        "--rate", type=float, default=3.0, help="Max image-CDN requests per second (default 3)"
+    )
+    build.add_argument(
+        "--concurrency", type=int, default=4, help="Max in-flight requests (default 4)"
+    )
+    build.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        help="Products per download/embed batch (default 256)",
+    )
+
+    dl = sub.add_parser(
+        "download-images", help="Download all product images into the cache without embedding"
+    )
+    dl.add_argument("--products-parquet", required=True)
+    dl.add_argument("--image-cache", default="data/image_cache")
+    dl.add_argument(
+        "--rate", type=float, default=10.0, help="Max image-CDN requests per second (default 10)"
+    )
+    dl.add_argument(
+        "--concurrency", type=int, default=16, help="Max in-flight requests (default 16)"
+    )
+    dl.add_argument(
+        "--batch-size", type=int, default=1024, help="Products per download batch (default 1024)"
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -51,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return _serve(args)
     if args.cmd == "build-catalog":
         return _build_catalog(args)
+    if args.cmd == "download-images":
+        return _download_images(args)
     return 2
 
 
@@ -79,6 +102,19 @@ def _build_catalog(args) -> int:
     build_catalog(
         products_parquet=Path(args.products_parquet),
         out_path=Path(args.out),
+        image_cache=Path(args.image_cache),
+        rate=args.rate,
+        concurrency=args.concurrency,
+        batch_size=args.batch_size,
+    )
+    return 0
+
+
+def _download_images(args) -> int:
+    from cv_inventory.catalog_build import download_only
+
+    download_only(
+        products_parquet=Path(args.products_parquet),
         image_cache=Path(args.image_cache),
         rate=args.rate,
         concurrency=args.concurrency,

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cv-inventory"
+version = "0.1.0.dev0"
+description = "TCGplayer-keyed card scanning API on top of CollectorVision"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "collectorvision @ git+https://github.com/ipkstef/CollectorVision.git@main",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "pandas>=2.0",
+  "pyarrow>=15.0",
+  "boto3>=1.34",
+  "python-dotenv>=1.0",
+  "httpx>=0.27",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "respx>=0.21", "moto[s3]>=5.0"]
+
+[project.scripts]
+cv-inventory = "cv_inventory.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cv_inventory = ["data/*.png", "data/*.csv"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

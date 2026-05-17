@@ -34,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--products-parquet", required=True)
     build.add_argument("--out", required=True)
     build.add_argument("--image-cache", default="data/image_cache")
+    build.add_argument("--rate", type=float, default=3.0,
+                       help="Max image-CDN requests per second (default 3)")
+    build.add_argument("--concurrency", type=int, default=4,
+                       help="Max in-flight requests (default 4)")
+    build.add_argument("--batch-size", type=int, default=256,
+                       help="Products per download/embed batch (default 256)")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -74,6 +80,9 @@ def _build_catalog(args) -> int:
         products_parquet=Path(args.products_parquet),
         out_path=Path(args.out),
         image_cache=Path(args.image_cache),
+        rate=args.rate,
+        concurrency=args.concurrency,
+        batch_size=args.batch_size,
     )
     return 0
 

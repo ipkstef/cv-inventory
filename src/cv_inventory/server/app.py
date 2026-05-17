@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from cv_inventory.image_fetch import FetchError, fetch_image
 from cv_inventory.server.auth import require_bearer
 from cv_inventory.server.schemas import (
+    IdentifyBatchRequest,
+    IdentifyBatchResponse,
     IdentifyRequest,
     IdentifyResponse,
 )
@@ -65,6 +67,38 @@ def create_app(state: AppState) -> FastAPI:
             "is_card_back": result.is_card_back,
             "candidates": _candidate_dicts(result.candidates),
         }
+
+    @router.post("/identify-batch", response_model=IdentifyBatchResponse)
+    async def identify_batch(req: IdentifyBatchRequest) -> dict:
+        import asyncio
+
+        async def one(item):
+            try:
+                image = await fetch_image(item.image_url)
+            except FetchError as e:
+                return {
+                    "id": item.id, "is_card_back": False, "candidates": [],
+                    "error": f"fetch failed: {e}",
+                }
+            try:
+                result = state.pipeline.identify(
+                    image=image, set_id=req.set_id, top_k=req.top_k,
+                    rotation_invariant=req.rotation_invariant,
+                )
+            except KeyError as e:
+                return {
+                    "id": item.id, "is_card_back": False, "candidates": [],
+                    "error": str(e),
+                }
+            return {
+                "id": item.id,
+                "is_card_back": result.is_card_back,
+                "candidates": _candidate_dicts(result.candidates),
+                "error": None,
+            }
+
+        results = await asyncio.gather(*(one(i) for i in req.images))
+        return {"results": list(results)}
 
     app.include_router(router)
     return app

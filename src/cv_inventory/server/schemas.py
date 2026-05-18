@@ -95,3 +95,4 @@ class ExportRow(BaseModel):
 
 class ExportRequest(BaseModel):
     rows: list[ExportRow]
+    merge_duplicates: bool = True

@@ -17,7 +17,7 @@ from cv_inventory.server.schemas import (
     SearchResponse,
 )
 from cv_inventory.server.state import AppState
-from cv_inventory.tcgplayer.seller_csv import build_seller_csv
+from cv_inventory.tcgplayer.seller_csv import MergePriceConflict, build_seller_csv
 
 
 def _candidate_dicts(candidates) -> list[dict]:
@@ -189,7 +189,19 @@ def create_app(state: AppState) -> FastAPI:
     @router.post("/export/tcgplayer-csv")
     async def export_csv(req: ExportRequest) -> Response:
         rows = [r.model_dump() for r in req.rows]
-        body = build_seller_csv(state.store, rows)
+        try:
+            body = build_seller_csv(state.store, rows, merge_duplicates=req.merge_duplicates)
+        except MergePriceConflict as e:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "code": "merge_price_conflict",
+                        "message": str(e),
+                        "conflicts": e.conflicts,
+                    }
+                },
+            )
         return Response(
             content=body,
             media_type="text/csv",

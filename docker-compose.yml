@@ -1,0 +1,9 @@
+services:
+  cv-inventory:
+    build: .
+    image: cv-inventory:latest
+    container_name: cv-inventory
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"

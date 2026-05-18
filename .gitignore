@@ -14,7 +14,8 @@ uv.lock
 .DS_Store
 
 # Local-only data that doesn't belong in source control
-catalogs/
 scan_images/
 report.html
 results.json
+
+# catalogs/ is tracked: .npz files via Git LFS, see .gitattributes

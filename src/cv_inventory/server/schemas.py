@@ -93,6 +93,28 @@ class ExportRow(BaseModel):
     marketplace_price: float | None = None
 
 
+PriceReference = Literal["market", "low", "mid", "high", "direct_low"]
+ModifierType = Literal["percent", "fixed"]
+
+
+class PriceFormulaModifier(BaseModel):
+    type: ModifierType
+    value: float
+
+
+class PriceFormula(BaseModel):
+    """Server-side listing price formula.
+
+    Applied per row only when that row has no explicit marketplace_price.
+    If the row's reference price is null (e.g. SKU has no market price),
+    the TCG Marketplace Price column is left blank for that row.
+    """
+
+    reference: PriceReference
+    modifier: PriceFormulaModifier | None = None
+
+
 class ExportRequest(BaseModel):
     rows: list[ExportRow]
     merge_duplicates: bool = True
+    price_formula: PriceFormula | None = None

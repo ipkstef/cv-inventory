@@ -6,8 +6,43 @@ import csv
 import io
 from collections import OrderedDict
 from collections.abc import Iterable
+from typing import Any
 
 from cv_inventory.tcgplayer.store import TCGStore
+
+# Map PriceFormula.reference -> key on the sku dict from TCGStore.skus_for_product().
+_REFERENCE_FIELD = {
+    "market": "market_price",
+    "low": "low_price",
+    "mid": "mid_price",
+    "high": "high_price",
+    "direct_low": "direct_low_price",
+}
+
+
+def _apply_modifier(base: float, modifier: dict | None) -> float:
+    if not modifier:
+        return base
+    mtype = modifier["type"]
+    value = float(modifier["value"])
+    if mtype == "percent":
+        return base * (1.0 + value / 100.0)
+    if mtype == "fixed":
+        return base + value
+    raise ValueError(f"Unknown modifier type {mtype!r}")
+
+
+def apply_price_formula(formula: dict | None, sku: dict | None) -> float | None:
+    """Compute a marketplace price from a SKU + formula, or None if not computable."""
+    if formula is None or sku is None:
+        return None
+    field = _REFERENCE_FIELD.get(formula["reference"])
+    if field is None:
+        raise ValueError(f"Unknown reference {formula['reference']!r}")
+    base = sku.get(field)
+    if base is None:
+        return None
+    return round(_apply_modifier(float(base), formula.get("modifier")), 2)
 
 
 class MergePriceConflict(ValueError):
@@ -101,6 +136,7 @@ def build_seller_csv(
     rows: Iterable[dict],
     *,
     merge_duplicates: bool = True,
+    price_formula: dict | None = None,
 ) -> bytes:
     """Render the seller-template CSV.
 
@@ -111,6 +147,11 @@ def build_seller_csv(
     ``merge_duplicates`` (default True): rows sharing
     (product_id, printing, condition, language) are summed into one row. If the
     rows have conflicting marketplace_price values, raises MergePriceConflict.
+
+    ``price_formula`` (default None): when provided, fills marketplace_price for
+    rows that don't have an explicit one. Per-row marketplace_price always wins
+    over the formula. Shape:
+        {"reference": "market", "modifier": {"type": "percent", "value": 2.0}}
     """
     row_list = list(rows)
     if merge_duplicates:
@@ -131,6 +172,9 @@ def build_seller_csv(
             condition=r["condition"],
             language=r["language"],
         )
+        marketplace_price: Any = r.get("marketplace_price")
+        if marketplace_price is None and price_formula is not None:
+            marketplace_price = apply_price_formula(price_formula, sku)
         writer.writerow(
             {
                 "TCGplayer Id": "" if sku is None else str(sku["sku_id"]),
@@ -147,7 +191,7 @@ def build_seller_csv(
                 "TCG Low Price": _fmt_money(sku["low_price"]) if sku else "",
                 "Total Quantity": str(int(r["quantity"])),
                 "Add to Quantity": "",
-                "TCG Marketplace Price": _fmt_money(r.get("marketplace_price")),
+                "TCG Marketplace Price": _fmt_money(marketplace_price),
                 "Photo URL": product["image_url"] or "",
             }
         )

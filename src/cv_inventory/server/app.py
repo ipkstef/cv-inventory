@@ -189,8 +189,14 @@ def create_app(state: AppState) -> FastAPI:
     @router.post("/export/tcgplayer-csv")
     async def export_csv(req: ExportRequest) -> Response:
         rows = [r.model_dump() for r in req.rows]
+        formula = req.price_formula.model_dump() if req.price_formula else None
         try:
-            body = build_seller_csv(state.store, rows, merge_duplicates=req.merge_duplicates)
+            body = build_seller_csv(
+                state.store,
+                rows,
+                merge_duplicates=req.merge_duplicates,
+                price_formula=formula,
+            )
         except MergePriceConflict as e:
             return JSONResponse(
                 status_code=400,

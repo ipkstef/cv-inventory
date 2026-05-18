@@ -113,7 +113,7 @@ def test_image_cache_roundtrip(tmp_path):
 
 def test_image_cache_creates_directory(tmp_path):
     cache_dir = tmp_path / "nested" / "imgs"
-    cache = ImageCache(cache_dir)
+    ImageCache(cache_dir)  # constructor creates the dir as a side effect
     assert cache_dir.exists()
     assert cache_dir.is_dir()
 

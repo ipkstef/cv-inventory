@@ -47,7 +47,7 @@ def test_build_catalog_filters_sealed_and_writes_npz(tmp_path):
         build_catalog(
             products_parquet=products_path,
             out_path=out,
-            image_cache=cache,
+            image_cache_dir=cache,
             rate=100.0,
             concurrency=2,
             batch_size=4,
@@ -84,7 +84,7 @@ def test_build_catalog_skips_already_cached(tmp_path):
         build_catalog(
             products_parquet=products_path,
             out_path=out,
-            image_cache=cache,
+            image_cache_dir=cache,
             rate=100.0,
             concurrency=1,
             batch_size=4,

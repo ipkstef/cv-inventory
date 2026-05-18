@@ -1,8 +1,23 @@
-"""Build a TCGplayer-keyed embedding catalog from products.parquet.
+"""TCGplayer catalog build pipeline — primitives + orchestrators.
 
-Parallel downloads with a global rate limiter, serial embed.  Already-cached
-images are skipped, so the build is resumable: kill the process and restart
-with the same --image-cache path to continue.
+The file is organized as **primitives** (top half) followed by **orchestrators**
+(bottom half). Each primitive does one thing and is independently testable;
+the orchestrators are thin compositions.
+
+Primitives
+----------
+- :func:`products_to_fetch` — read products.parquet → iter[(product_id, urls)]
+- :class:`RateLimiter`      — async token bucket (shared across N workers)
+- :func:`download_image`    — try a list of URLs, return bytes of first success
+- :class:`ImageCache`       — disk-backed cache keyed by product_id
+- :func:`preprocess`        — bytes → 448×448 PIL Image (letterboxed)
+- :func:`embed_one`         — embedder + PIL Image → (128,) L2-normalised vector
+- :func:`write_catalog_npz` — write the NPZ format CollectorVision's Catalog expects
+
+Orchestrators
+-------------
+- :func:`download_only`     — populate the ImageCache for every product in a parquet
+- :func:`build_catalog`     — full pipeline: cache or fetch → preprocess → embed → NPZ
 """
 
 from __future__ import annotations
@@ -12,6 +27,7 @@ import io
 import json
 import logging
 import time
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import httpx
@@ -25,23 +41,45 @@ log = logging.getLogger(__name__)
 USER_AGENT = "scan-and-identify/0.1 (catalog-build; +https://github.com/ipkstef/scan-and-identify)"
 
 
-def _high_res_url(product_id: int) -> str:
-    return f"https://tcgplayer-cdn.tcgplayer.com/product/{product_id}_in_1000x1000.jpg"
+# =============================================================================
+# Primitives
+# =============================================================================
 
 
-def _resize_letterbox(img: Image.Image, size: int = 448) -> Image.Image:
-    img = img.convert("RGB")
-    w, h = img.size
-    scale = size / max(w, h)
-    new_w, new_h = int(w * scale), int(h * scale)
-    resized = img.resize((new_w, new_h), Image.LANCZOS)
-    canvas = Image.new("RGB", (size, size), (255, 255, 255))
-    canvas.paste(resized, ((size - new_w) // 2, (size - new_h) // 2))
-    return canvas
+def tcgplayer_image_urls(product_id: int, image_url_from_parquet: str | None = None) -> list[str]:
+    """Return the URL list to try for a TCGplayer product image, best-quality first.
+
+    Tries the ``_in_1000x1000.jpg`` high-res variant first; falls back to whatever
+    URL is in the parquet (typically the ``_200w.jpg`` thumbnail). Knowing the
+    TCGplayer CDN URL pattern lives in exactly this one place.
+    """
+    urls = [f"https://tcgplayer-cdn.tcgplayer.com/product/{int(product_id)}_in_1000x1000.jpg"]
+    if image_url_from_parquet and image_url_from_parquet not in urls:
+        urls.append(image_url_from_parquet)
+    return urls
 
 
-class _RateLimiter:
-    """Token-bucket-ish: acquire() returns at most once every 1/rate seconds across all callers."""
+def products_to_fetch(products_parquet: Path) -> Iterator[tuple[int, list[str]]]:
+    """Yield ``(product_id, urls)`` for every non-sealed product with an image URL.
+
+    URLs are ordered best-quality first; consumers should try them in order.
+    Sealed products are excluded because we don't catalog them. Products with no
+    parquet image URL at all are silently skipped — they have no image to fetch.
+    """
+    df = pd.read_parquet(products_parquet)
+    df = df[df["is_sealed"] == False]  # noqa: E712
+    df = df[df["image_url"].notna()]
+    for row in df.itertuples(index=False):
+        pid = int(row.product_id)
+        yield pid, tcgplayer_image_urls(pid, row.image_url)
+
+
+class RateLimiter:
+    """Async token-bucket: ``acquire()`` returns at most once every ``1/rate`` seconds.
+
+    Shared across N workers via a single asyncio.Lock. With N=32 workers and
+    rate=10, you get a steady 10 req/s aggregate with up to 32 in flight.
+    """
 
     def __init__(self, rate: float) -> None:
         self._min_interval = 1.0 / rate
@@ -57,74 +95,191 @@ class _RateLimiter:
             self._next_allowed = max(self._next_allowed, now) + self._min_interval
 
 
-async def _download_one(
+async def download_image(
     client: httpx.AsyncClient,
-    limiter: _RateLimiter,
-    pid: int,
-    fallback_url: str,
-    dest: Path,
+    urls: list[str],
+    limiter: RateLimiter,
+    *,
+    timeout: float = 20.0,
 ) -> bytes | None:
-    for url in (_high_res_url(pid), fallback_url):
+    """Try each URL in order; return bytes of the first 200-with-image response.
+
+    Each request waits its turn on the rate limiter. On 429/503 (rate-limit /
+    overload) the entire pipeline pauses 5s before trying the next URL.
+    Returns ``None`` if every URL fails — caller decides what to do.
+    """
+    for url in urls:
         await limiter.acquire()
         try:
-            r = await client.get(url, timeout=20.0)
+            r = await client.get(url, timeout=timeout)
         except httpx.HTTPError as e:
             log.debug("download error for %s: %s", url, e)
             continue
         if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
-            dest.write_bytes(r.content)
             return r.content
         if r.status_code in (429, 503):
-            # Be polite: pause the whole pipeline briefly on backpressure.
             log.warning("Backpressure %s on %s — sleeping 5s", r.status_code, url)
             await asyncio.sleep(5)
     return None
 
 
-async def _download_batch(
-    pending: list[tuple[int, str, Path]],
+class ImageCache:
+    """Disk-backed image cache, keyed by product_id, stored as ``<dir>/<pid>.jpg``.
+
+    Read-through and write-through. Lookup is O(1) (filesystem stat). The cache
+    is the unit of incremental progress: pre-cached IDs are skipped on rebuild,
+    so monthly catalog refreshes only fetch new products.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    def path(self, product_id: int) -> Path:
+        return self._root / f"{int(product_id)}.jpg"
+
+    def has(self, product_id: int) -> bool:
+        return self.path(product_id).exists()
+
+    def get(self, product_id: int) -> bytes | None:
+        p = self.path(product_id)
+        return p.read_bytes() if p.exists() else None
+
+    def put(self, product_id: int, content: bytes) -> None:
+        self.path(product_id).write_bytes(content)
+
+
+def preprocess(image_bytes: bytes, size: int = 448) -> Image.Image:
+    """Decode JPEG/PNG bytes → 448×448 RGB PIL Image with letterbox padding.
+
+    Letterboxing preserves aspect ratio by adding white bars rather than
+    stretching. This matches what the embedder expects — Milo was trained on
+    448×448 inputs and ArcFace embeddings degrade when the aspect ratio is
+    distorted.
+    """
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    w, h = img.size
+    scale = size / max(w, h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = img.resize((new_w, new_h), Image.LANCZOS)
+    canvas = Image.new("RGB", (size, size), (255, 255, 255))
+    canvas.paste(resized, ((size - new_w) // 2, (size - new_h) // 2))
+    return canvas
+
+
+def embed_one(embedder: NeuralEmbedder, img: Image.Image) -> np.ndarray:
+    """Embed a single 448×448 PIL Image → (128,) float32 unit vector.
+
+    Wraps the engine's :meth:`NeuralEmbedder.embed` with explicit L2 normalisation
+    (defence-in-depth: the engine should already normalise, but cosine search
+    silently produces garbage if you ever feed it a non-unit vector).
+    """
+    emb = np.asarray(embedder.embed(img), dtype=np.float32)
+    norm = float(np.linalg.norm(emb))
+    if norm > 1e-8:
+        emb = emb / norm
+    return emb
+
+
+def write_catalog_npz(
+    path: Path,
+    card_ids: list[str],
+    embeddings: np.ndarray,
+    *,
+    source: str = "tcgplayer",
+    algo_key: str = "milo1",
+) -> None:
+    """Write an NPZ in the format CollectorVision's :class:`Catalog` reads.
+
+    ``embeddings`` should already be L2-normalised (use :func:`embed_one`).
+    ``card_ids`` should be parallel to embeddings — same length, same order.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        embeddings=embeddings,
+        card_ids=np.array(card_ids, dtype="<U36"),
+        source=source,
+        embedder_spec=json.dumps({"kind": "neural", "algo_key": algo_key}),
+    )
+
+
+# =============================================================================
+# Internal helpers used only by orchestrators
+# =============================================================================
+
+
+async def _download_pending(
+    pending: list[tuple[int, list[str]]],
+    cache: ImageCache,
+    *,
     rate: float,
     concurrency: int,
 ) -> dict[int, bytes]:
-    """Download all (pid, url, dest) in pending; return {pid: bytes} for successes."""
-    limiter = _RateLimiter(rate)
+    """Parallel-fetch every (pid, urls) in `pending` and write successes to `cache`.
+
+    Returns the {pid: bytes} dict for in-process consumers (e.g. orchestrators
+    that want to embed immediately without re-reading from disk).
+    """
+    limiter = RateLimiter(rate)
     sem = asyncio.Semaphore(concurrency)
     results: dict[int, bytes] = {}
-
     headers = {"User-Agent": USER_AGENT, "Accept": "image/*"}
+
     async with httpx.AsyncClient(headers=headers, http2=False) as client:
 
-        async def worker(pid: int, url: str, dest: Path) -> None:
+        async def worker(pid: int, urls: list[str]) -> None:
             async with sem:
-                content = await _download_one(client, limiter, pid, url, dest)
+                content = await download_image(client, urls, limiter)
                 if content is not None:
+                    cache.put(pid, content)
                     results[pid] = content
 
-        await asyncio.gather(*(worker(pid, url, dest) for pid, url, dest in pending))
+        await asyncio.gather(*(worker(pid, urls) for pid, urls in pending))
 
     return results
 
 
+def _log_progress(done: int, total: int, start_t: float, suffix: str = "") -> None:
+    elapsed = time.monotonic() - start_t
+    rate = done / elapsed if elapsed > 0 else 0
+    eta_min = ((total - done) / rate) / 60 if rate > 0 else 0
+    log.info(
+        "Progress %d/%d (%.1f%%) — %.2f products/s — ETA %.1f min%s",
+        done,
+        total,
+        100 * done / total if total else 0,
+        rate,
+        eta_min,
+        suffix,
+    )
+
+
+# =============================================================================
+# Orchestrators
+# =============================================================================
+
+
 def download_only(
     products_parquet: Path,
-    image_cache: Path,
+    image_cache_dir: Path,
     *,
     rate: float = 10.0,
     concurrency: int = 16,
     batch_size: int = 1024,
 ) -> None:
-    """Download all non-sealed product images into the cache. No embedding, no NPZ.
+    """Populate the image cache for every product in ``products_parquet``.
 
-    Use this first to populate the cache at high rate (download is the slow part),
-    then run :func:`build_catalog` to embed from the cache without network.
+    Already-cached IDs are skipped, so this is resumable: kill it and restart
+    with the same ``image_cache_dir`` to continue.
+
+    No embedding, no NPZ. Use this first to fully cache images at high rate,
+    then run :func:`build_catalog` to embed without network. Useful when you
+    want to separate the slow network phase from CPU embedding.
     """
-    image_cache.mkdir(parents=True, exist_ok=True)
-    df = pd.read_parquet(products_parquet)
-    df = df[df["is_sealed"] == False].copy()  # noqa: E712
-    df = df[df["image_url"].notna()]
-    rows = list(df.itertuples(index=False))
-    total = len(rows)
-
+    cache = ImageCache(image_cache_dir)
+    items = list(products_to_fetch(products_parquet))
+    total = len(items)
     log.info(
         "Downloading images for %d products (rate=%.1f req/s, concurrency=%d, batch=%d)",
         total,
@@ -134,73 +289,59 @@ def download_only(
     )
 
     start = time.monotonic()
-    cached_count = 0
-    fetched_count = 0
+    cached_at_start = 0
+    newly_fetched = 0
     for batch_start in range(0, total, batch_size):
-        batch = rows[batch_start : batch_start + batch_size]
-        pending: list[tuple[int, str, Path]] = []
-        for row in batch:
-            pid = int(row.product_id)
-            dest = image_cache / f"{pid}.jpg"
-            if dest.exists():
-                cached_count += 1
+        batch = items[batch_start : batch_start + batch_size]
+        pending: list[tuple[int, list[str]]] = []
+        for pid, urls in batch:
+            if cache.has(pid):
+                cached_at_start += 1
             else:
-                pending.append((pid, row.image_url, dest))
+                pending.append((pid, urls))
 
         if pending:
-            fetched = asyncio.run(_download_batch(pending, rate=rate, concurrency=concurrency))
-            fetched_count += len(fetched)
+            fetched = asyncio.run(
+                _download_pending(pending, cache, rate=rate, concurrency=concurrency)
+            )
+            newly_fetched += len(fetched)
 
-        done = batch_start + len(batch)
-        elapsed = time.monotonic() - start
-        rate_actual = done / elapsed if elapsed > 0 else 0
-        eta_sec = (total - done) / rate_actual if rate_actual > 0 else 0
-        log.info(
-            "Progress %d/%d (%.1f%%) — cached %d fetched %d — %.2f products/s — ETA %.1f min",
-            done,
+        _log_progress(
+            batch_start + len(batch),
             total,
-            100 * done / total,
-            cached_count,
-            fetched_count,
-            rate_actual,
-            eta_sec / 60,
+            start,
+            suffix=f" (cached {cached_at_start}, fetched {newly_fetched})",
         )
 
     log.info(
         "Done. Cached at start: %d, newly fetched: %d, total images in cache: %d",
-        cached_count,
-        fetched_count,
-        cached_count + fetched_count,
+        cached_at_start,
+        newly_fetched,
+        cached_at_start + newly_fetched,
     )
 
 
 def build_catalog(
     products_parquet: Path,
     out_path: Path,
-    image_cache: Path,
+    image_cache_dir: Path,
     *,
     rate: float = 3.0,
     concurrency: int = 4,
     batch_size: int = 256,
 ) -> None:
-    """Build a TCGplayer-keyed embedding catalog.
+    """Build a TCGplayer-keyed embedding catalog from ``products_parquet``.
 
-    Network politeness: at most ``rate`` requests/sec across all workers,
-    cap of ``concurrency`` in-flight requests.  Default 3 req/s with 4
-    workers is sustainable on Cloudflare-fronted CDNs without tripping
-    abuse detection.
+    For each product: use cached image if present, else fetch from CDN (within
+    rate limit). Then preprocess → embed → accumulate. At the end, write NPZ.
+
+    Network politeness: at most ``rate`` requests/sec across all workers, cap
+    of ``concurrency`` in-flight requests. Default 3 req/s × 4 workers is
+    sustainable on Cloudflare-fronted CDNs without abuse detection.
     """
-    image_cache.mkdir(parents=True, exist_ok=True)
-    df = pd.read_parquet(products_parquet)
-    df = df[df["is_sealed"] == False].copy()  # noqa: E712
-    df = df[df["image_url"].notna()]
-
-    embedder = NeuralEmbedder()
-    embeddings: list[np.ndarray] = []
-    ids: list[str] = []
-
-    rows = list(df.itertuples(index=False))
-    total = len(rows)
+    cache = ImageCache(image_cache_dir)
+    items = list(products_to_fetch(products_parquet))
+    total = len(items)
     log.info(
         "Building catalog from %d products (rate=%.1f req/s, concurrency=%d, batch=%d)",
         total,
@@ -209,57 +350,82 @@ def build_catalog(
         batch_size,
     )
 
+    embedder = NeuralEmbedder()
+    embeddings: list[np.ndarray] = []
+    card_ids: list[str] = []
+
     start = time.monotonic()
     for batch_start in range(0, total, batch_size):
-        batch = rows[batch_start : batch_start + batch_size]
+        batch = items[batch_start : batch_start + batch_size]
 
-        pending: list[tuple[int, str, Path]] = []
-        cached_now: dict[int, bytes] = {}
-        for row in batch:
-            pid = int(row.product_id)
-            dest = image_cache / f"{pid}.jpg"
-            if dest.exists():
-                cached_now[pid] = dest.read_bytes()
+        # Phase 1: collect already-cached images, queue the rest for fetch.
+        in_memory: dict[int, bytes] = {}
+        pending: list[tuple[int, list[str]]] = []
+        for pid, urls in batch:
+            cached = cache.get(pid)
+            if cached is not None:
+                in_memory[pid] = cached
             else:
-                pending.append((pid, row.image_url, dest))
+                pending.append((pid, urls))
 
-        fetched = asyncio.run(_download_batch(pending, rate=rate, concurrency=concurrency))
-        cached_now.update(fetched)
+        # Phase 2: fetch the missing ones (also writes to cache).
+        if pending:
+            fetched = asyncio.run(
+                _download_pending(pending, cache, rate=rate, concurrency=concurrency)
+            )
+            in_memory.update(fetched)
 
-        for row in batch:
-            pid = int(row.product_id)
-            content = cached_now.get(pid)
+        # Phase 3: preprocess + embed in batch order.
+        for pid, _ in batch:
+            content = in_memory.get(pid)
             if content is None:
-                continue
+                continue  # download failed for this product; skip silently
             try:
-                img = _resize_letterbox(Image.open(io.BytesIO(content)))
+                img = preprocess(content)
             except Exception as e:
                 log.warning("Bad image for product %s: %s", pid, e)
                 continue
-            emb = np.asarray(embedder.embed(img), dtype=np.float32)
-            emb = emb / np.linalg.norm(emb)
-            embeddings.append(emb)
-            ids.append(str(pid))
+            embeddings.append(embed_one(embedder, img))
+            card_ids.append(str(pid))
 
-        done = batch_start + len(batch)
-        elapsed = time.monotonic() - start
-        rate_actual = done / elapsed if elapsed > 0 else 0
-        eta_sec = (total - done) / rate_actual if rate_actual > 0 else 0
-        log.info(
-            "Progress %d/%d (%.1f%%) — %.2f products/s — ETA %.1f min",
-            done,
-            total,
-            100 * done / total,
-            rate_actual,
-            eta_sec / 60,
-        )
+        _log_progress(batch_start + len(batch), total, start)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        out_path,
-        embeddings=np.stack(embeddings, axis=0),
-        card_ids=np.array(ids, dtype="<U36"),
-        source="tcgplayer",
-        embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1"}),
-    )
-    log.info("Wrote %d embeddings to %s", len(ids), out_path)
+    write_catalog_npz(out_path, card_ids, np.stack(embeddings, axis=0))
+    log.info("Wrote %d embeddings to %s", len(card_ids), out_path)
+
+
+# =============================================================================
+# Async iteration helper (exported for future streaming consumers)
+# =============================================================================
+
+
+async def stream_image_bytes(
+    items: list[tuple[int, list[str]]],
+    cache: ImageCache,
+    *,
+    rate: float,
+    concurrency: int,
+) -> AsyncIterator[tuple[int, bytes]]:
+    """Async-yield ``(product_id, image_bytes)`` for each item, fetching as needed.
+
+    Yields cached-first (no network), then fetches missing in parallel. Useful
+    for a streaming embed pipeline that doesn't need to hold all items in
+    memory at once.
+
+    Not used by the current orchestrators (they accumulate in-memory because
+    embedding is much slower than yielding). Kept here as a composition point
+    for future work.
+    """
+    cached = [(pid, cache.get(pid)) for pid, _ in items]
+    missing = [(pid, urls) for pid, urls in items if not cache.has(pid)]
+
+    for pid, content in cached:
+        if content is not None:
+            yield pid, content
+
+    if not missing:
+        return
+
+    fetched = await _download_pending(missing, cache, rate=rate, concurrency=concurrency)
+    for pid, content in fetched.items():
+        yield pid, content

@@ -102,7 +102,7 @@ def _build_catalog(args) -> int:
     build_catalog(
         products_parquet=Path(args.products_parquet),
         out_path=Path(args.out),
-        image_cache=Path(args.image_cache),
+        image_cache_dir=Path(args.image_cache),
         rate=args.rate,
         concurrency=args.concurrency,
         batch_size=args.batch_size,
@@ -115,7 +115,7 @@ def _download_images(args) -> int:
 
     download_only(
         products_parquet=Path(args.products_parquet),
-        image_cache=Path(args.image_cache),
+        image_cache_dir=Path(args.image_cache),
         rate=args.rate,
         concurrency=args.concurrency,
         batch_size=args.batch_size,

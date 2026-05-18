@@ -1,4 +1,4 @@
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.tcgplayer.store import TCGStore
 
 
 def test_store_loads_sets_sorted_current_first(synthetic_parquets):

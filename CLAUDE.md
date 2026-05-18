@@ -10,7 +10,7 @@ A stateless HTTP API that identifies cards from scanned images and emits TCGplay
 - `docs/API.md` — endpoint reference + the "Website Responsibilities" section every integrator needs
 - `docs/ARCHITECTURE.md` — three-tier mental model + boot sequence + per-request flow
 - `docs/OPERATIONS.md` — catalog refresh, deployment, mtg-eye build dance
-- The original spec lives in the sibling repo at `CollectorVision/docs/superpowers/specs/2026-05-16-cv-inventory-api-design.md`
+- The original spec lives in the sibling repo at `CollectorVision/docs/superpowers/specs/2026-05-16-scan-and-identify-api-design.md`
 
 ## Common commands
 
@@ -33,20 +33,20 @@ The test suite uses synthetic fixtures (`tests/fixtures/synthetic.py`) and needs
 Run the server locally:
 ```bash
 cp ../CollectorVision/.env .env   # or compose your own; see docs/API.md for env vars
-# (add CV_INVENTORY_API_KEY and CV_INVENTORY_CATALOG_PATH)
-cv-inventory serve --port 8000
+# (add SCAN_AND_IDENTIFY_API_KEY and SCAN_AND_IDENTIFY_CATALOG_PATH)
+scan-and-identify serve --port 8000
 ```
 
 Docker:
 ```bash
-docker build -t cv-inventory:latest .
-docker run -d -p 8000:8000 --env-file .env -v $PWD/catalogs:/app/catalogs cv-inventory:latest
+docker build -t scan-and-identify:latest .
+docker run -d -p 8000:8000 --env-file .env -v $PWD/catalogs:/app/catalogs scan-and-identify:latest
 ```
 
 Build a catalog NPZ (one-shot, runs on mtg-eye in practice — see `docs/OPERATIONS.md`):
 ```bash
-cv-inventory download-images --products-parquet path/to/products.parquet --image-cache /tmp/imgs --rate 40 --concurrency 32
-cv-inventory build-catalog   --products-parquet path/to/products.parquet --image-cache /tmp/imgs --out catalogs/<file>.npz --rate 40 --concurrency 32
+scan-and-identify download-images --products-parquet path/to/products.parquet --image-cache /tmp/imgs --rate 40 --concurrency 32
+scan-and-identify build-catalog   --products-parquet path/to/products.parquet --image-cache /tmp/imgs --out catalogs/<file>.npz --rate 40 --concurrency 32
 ```
 
 ## Architecture in one paragraph
@@ -74,10 +74,10 @@ A FastAPI app (`server/app.py`) wraps a pipeline (`pipeline.py`) that uses an `I
 
 - No database. No migrations. No sessions.
 - No corner-detection (Cornelius). ADF scans are pre-cropped; we skip detection and just resize-to-448 before embedding. If you ever need to support phone-photo uploads, wire in `collector_vision.NeuralCornerDetector` + `DetectionResult.dewarp()` in `pipeline.py`.
-- No card-back PNG bundled. `BackRejector` initializes disabled (never flags). Drop a 448×448 canonical at e.g. `src/cv_inventory/data/mtg_card_back.png` and pass `--back-image` to enable.
+- No card-back PNG bundled. `BackRejector` initializes disabled (never flags). Drop a 448×448 canonical at e.g. `src/scan_and_identify/data/mtg_card_back.png` and pass `--back-image` to enable.
 - No hot-reload of catalog. Restart the container.
 - No per-key auth or rate limiting. Single shared bearer token.
-- No support for non-MTG categories yet. The shape generalizes (set `CV_INVENTORY_TCGPLAYER_CATEGORY=N`) but `Product Line: "Magic"` is hardcoded in the seller CSV — needs a category-to-product-line lookup before adding Pokémon etc.
+- No support for non-MTG categories yet. The shape generalizes (set `SCAN_AND_IDENTIFY_TCGPLAYER_CATEGORY=N`) but `Product Line: "Magic"` is hardcoded in the seller CSV — needs a category-to-product-line lookup before adding Pokémon etc.
 
 ## When to touch the engine fork vs this repo
 

@@ -1,6 +1,6 @@
 import pytest
 
-from cv_inventory.pipeline import ConfidenceThresholds, classify_confidence
+from scan_and_identify.pipeline import ConfidenceThresholds, classify_confidence
 
 
 def test_default_good_when_score_and_gap_high():
@@ -30,10 +30,10 @@ def test_boundary_poor_score_is_exclusive():
 
 
 def test_env_thresholds_override(monkeypatch):
-    monkeypatch.setenv("CV_INVENTORY_CONF_GOOD_SCORE", "0.80")
-    monkeypatch.setenv("CV_INVENTORY_CONF_GOOD_GAP", "0.30")
-    monkeypatch.setenv("CV_INVENTORY_CONF_POOR_SCORE", "0.20")
-    monkeypatch.setenv("CV_INVENTORY_CONF_POOR_GAP", "0.01")
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CONF_GOOD_SCORE", "0.80")
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CONF_GOOD_GAP", "0.30")
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CONF_POOR_SCORE", "0.20")
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CONF_POOR_GAP", "0.01")
 
     t = ConfidenceThresholds.from_env()
 
@@ -47,10 +47,10 @@ def test_env_thresholds_override(monkeypatch):
 
 def test_env_thresholds_missing_keep_defaults(monkeypatch):
     for k in [
-        "CV_INVENTORY_CONF_GOOD_SCORE",
-        "CV_INVENTORY_CONF_GOOD_GAP",
-        "CV_INVENTORY_CONF_POOR_SCORE",
-        "CV_INVENTORY_CONF_POOR_GAP",
+        "SCAN_AND_IDENTIFY_CONF_GOOD_SCORE",
+        "SCAN_AND_IDENTIFY_CONF_GOOD_GAP",
+        "SCAN_AND_IDENTIFY_CONF_POOR_SCORE",
+        "SCAN_AND_IDENTIFY_CONF_POOR_GAP",
     ]:
         monkeypatch.delenv(k, raising=False)
 

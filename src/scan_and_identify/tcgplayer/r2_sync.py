@@ -8,7 +8,7 @@ from pathlib import Path
 
 import boto3
 
-from cv_inventory.config import R2Config
+from scan_and_identify.config import R2Config
 
 log = logging.getLogger(__name__)
 

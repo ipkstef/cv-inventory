@@ -1,8 +1,8 @@
 services:
-  cv-inventory:
+  scan-and-identify:
     build: .
-    image: cv-inventory:latest
-    container_name: cv-inventory
+    image: scan-and-identify:latest
+    container_name: scan-and-identify
     restart: unless-stopped
     env_file: .env
     ports:

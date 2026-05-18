@@ -14,10 +14,10 @@ COPY src ./src
 
 RUN pip install --upgrade pip && pip install .
 
-# Catalog is baked in at build time. Set CV_INVENTORY_CATALOG_PATH=/app/catalogs/<file>.npz
+# Catalog is baked in at build time. Set SCAN_AND_IDENTIFY_CATALOG_PATH=/app/catalogs/<file>.npz
 COPY catalogs/ ./catalogs/
 
 EXPOSE 8000
 
-CMD ["cv-inventory", "serve", "--host", "0.0.0.0", "--port", "8000", \
+CMD ["scan-and-identify", "serve", "--host", "0.0.0.0", "--port", "8000", \
      "--parquet-cache", "/app/data/cache"]

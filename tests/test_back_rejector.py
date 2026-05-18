@@ -1,6 +1,6 @@
 import numpy as np
 
-from cv_inventory.back_rejector import BackRejector
+from scan_and_identify.back_rejector import BackRejector
 
 
 def _unit(v: np.ndarray) -> np.ndarray:

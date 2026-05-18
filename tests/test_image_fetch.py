@@ -5,7 +5,7 @@ import respx
 from httpx import Response
 from PIL import Image
 
-from cv_inventory.image_fetch import FetchError, fetch_image
+from scan_and_identify.image_fetch import FetchError, fetch_image
 
 
 def _png_bytes(color=(123, 45, 67)) -> bytes:

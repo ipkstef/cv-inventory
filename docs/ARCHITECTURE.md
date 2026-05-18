@@ -1,4 +1,4 @@
-# cv-inventory Architecture
+# scan-and-identify Architecture
 
 The mental model in one page, then a tour of how the pieces compose.
 
@@ -11,13 +11,13 @@ The mental model in one page, then a tour of how the pieces compose.
 │   YOUR WEBSITE  (consumer; not in this repo)                    │
 │                                                                  │
 │   - Owns: batches, corrections, user accounts, scan storage      │
-│   - Talks to cv-inventory over HTTP with a shared bearer token   │
+│   - Talks to scan-and-identify over HTTP with a shared bearer token   │
 │   - See "Website Responsibilities" in docs/API.md                │
 └────────────────────────────┬─────────────────────────────────────┘
                              │ HTTP (JSON in, JSON/CSV out)
                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│   cv-inventory  (this repo, Docker container)                   │
+│   scan-and-identify  (this repo, Docker container)                   │
 │                                                                  │
 │   FastAPI app  ──┬── /identify, /identify-batch                  │
 │                  ├── /search                                     │
@@ -161,20 +161,20 @@ Pure dict lookups and string formatting. Sub-millisecond per row. A 1000-row exp
 
 | Path | Owns |
 |---|---|
-| `src/cv_inventory/config.py` | Env-var loading + validation |
-| `src/cv_inventory/tcgplayer/r2_sync.py` | R2 → local cache with freshness check |
-| `src/cv_inventory/tcgplayer/store.py` | In-memory join layer (the most-touched file) |
-| `src/cv_inventory/tcgplayer/seller_csv.py` | TCGplayer seller-template CSV + merge + formula |
-| `src/cv_inventory/image_fetch.py` | Async HTTP → PIL Image |
-| `src/cv_inventory/back_rejector.py` | Cosine gate vs canonical card-back |
-| `src/cv_inventory/set_index.py` | Pre-sliced sub-catalogs per group_id |
-| `src/cv_inventory/pipeline.py` | Compose embedder + index + store + back-rejector |
-| `src/cv_inventory/catalog_build.py` | Build/download CLI logic |
-| `src/cv_inventory/cli.py` | argparse entry point (`cv-inventory`) |
-| `src/cv_inventory/server/state.py` | Singleton boot + dependency container |
-| `src/cv_inventory/server/auth.py` | Bearer-token middleware |
-| `src/cv_inventory/server/schemas.py` | All Pydantic request/response models |
-| `src/cv_inventory/server/app.py` | Route wiring + error translation |
+| `src/scan_and_identify/config.py` | Env-var loading + validation |
+| `src/scan_and_identify/tcgplayer/r2_sync.py` | R2 → local cache with freshness check |
+| `src/scan_and_identify/tcgplayer/store.py` | In-memory join layer (the most-touched file) |
+| `src/scan_and_identify/tcgplayer/seller_csv.py` | TCGplayer seller-template CSV + merge + formula |
+| `src/scan_and_identify/image_fetch.py` | Async HTTP → PIL Image |
+| `src/scan_and_identify/back_rejector.py` | Cosine gate vs canonical card-back |
+| `src/scan_and_identify/set_index.py` | Pre-sliced sub-catalogs per group_id |
+| `src/scan_and_identify/pipeline.py` | Compose embedder + index + store + back-rejector |
+| `src/scan_and_identify/catalog_build.py` | Build/download CLI logic |
+| `src/scan_and_identify/cli.py` | argparse entry point (`scan-and-identify`) |
+| `src/scan_and_identify/server/state.py` | Singleton boot + dependency container |
+| `src/scan_and_identify/server/auth.py` | Bearer-token middleware |
+| `src/scan_and_identify/server/schemas.py` | All Pydantic request/response models |
+| `src/scan_and_identify/server/app.py` | Route wiring + error translation |
 | `scripts/eval_review.py` | Generate HTML accuracy report from a folder of scans |
 | `scripts/smoke_test.sh` | Boot Docker + curl every endpoint |
 
@@ -193,9 +193,9 @@ Pure dict lookups and string formatting. Sub-millisecond per row. A 1000-row exp
 
 ## Where the data actually lives
 
-| Data | Source of truth | Lives in cv-inventory as |
+| Data | Source of truth | Lives in scan-and-identify as |
 |---|---|---|
-| Card embeddings | Built monthly on mtg-eye from TCGplayer CDN images | NPZ at `CV_INVENTORY_CATALOG_PATH`, baked into Docker image |
+| Card embeddings | Built monthly on mtg-eye from TCGplayer CDN images | NPZ at `SCAN_AND_IDENTIFY_CATALOG_PATH`, baked into Docker image |
 | Card metadata (names, sets, rarities, prices) | R2 bucket `tcgplayerapi/<category>/*.parquet` (maintained by separate process) | In-memory pandas tables, re-synced at every container boot |
 | Scan images | Consumer website's storage (S3, R2, whatever) | Never stored — fetched per request, processed, discarded |
 | Batches / corrections / user state | Consumer website's database | Never stored — passed through in requests |

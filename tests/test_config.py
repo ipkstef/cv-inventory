@@ -1,13 +1,13 @@
 import pytest
 
-from cv_inventory.config import Config, ConfigError
+from scan_and_identify.config import Config, ConfigError
 
 
 def test_config_from_env_reads_all_fields(monkeypatch, tmp_path):
     catalog = tmp_path / "catalog.npz"
     catalog.write_bytes(b"")
-    monkeypatch.setenv("CV_INVENTORY_API_KEY", "secret")
-    monkeypatch.setenv("CV_INVENTORY_CATALOG_PATH", str(catalog))
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_API_KEY", "secret")
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CATALOG_PATH", str(catalog))
     monkeypatch.setenv("R2_TCGPLAYER_BUCKET_ACCESS_KEY", "ak")
     monkeypatch.setenv("R2_TCGPLAYER_BUCKET_SECRET_KEY", "sk")
     monkeypatch.setenv("R2_TCGPLAYER_URL", "https://example.r2.cloudflarestorage.com")
@@ -24,13 +24,13 @@ def test_config_from_env_reads_all_fields(monkeypatch, tmp_path):
 
 
 def test_config_missing_api_key_raises(monkeypatch):
-    monkeypatch.delenv("CV_INVENTORY_API_KEY", raising=False)
-    monkeypatch.setenv("CV_INVENTORY_CATALOG_PATH", "/nope")
+    monkeypatch.delenv("SCAN_AND_IDENTIFY_API_KEY", raising=False)
+    monkeypatch.setenv("SCAN_AND_IDENTIFY_CATALOG_PATH", "/nope")
     monkeypatch.setenv("R2_TCGPLAYER_BUCKET_ACCESS_KEY", "ak")
     monkeypatch.setenv("R2_TCGPLAYER_BUCKET_SECRET_KEY", "sk")
     monkeypatch.setenv("R2_TCGPLAYER_URL", "https://e.r2.cloudflarestorage.com")
 
-    with pytest.raises(ConfigError, match="CV_INVENTORY_API_KEY"):
+    with pytest.raises(ConfigError, match="SCAN_AND_IDENTIFY_API_KEY"):
         Config.from_env()
 
 

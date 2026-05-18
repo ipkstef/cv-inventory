@@ -8,7 +8,7 @@ from collections import OrderedDict
 from collections.abc import Iterable
 from typing import Any
 
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.tcgplayer.store import TCGStore
 
 # Map PriceFormula.reference -> key on the sku dict from TCGStore.skus_for_product().
 _REFERENCE_FIELD = {

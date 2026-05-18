@@ -1,4 +1,4 @@
-# cv-inventory Operations Runbook
+# scan-and-identify Operations Runbook
 
 Everything you need to deploy, refresh, and observe the running system.
 
@@ -8,16 +8,16 @@ Everything you need to deploy, refresh, and observe the running system.
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `CV_INVENTORY_API_KEY` | yes | — | Shared bearer token. Generate via e.g. `openssl rand -base64 48`. |
-| `CV_INVENTORY_CATALOG_PATH` | yes | — | Absolute path to the `.npz` catalog. In Docker, baked in at `/app/catalogs/<file>.npz`. |
+| `SCAN_AND_IDENTIFY_API_KEY` | yes | — | Shared bearer token. Generate via e.g. `openssl rand -base64 48`. |
+| `SCAN_AND_IDENTIFY_CATALOG_PATH` | yes | — | Absolute path to the `.npz` catalog. In Docker, baked in at `/app/catalogs/<file>.npz`. |
 | `R2_TCGPLAYER_BUCKET_ACCESS_KEY` | yes | — | R2 access key for the `tcgplayerapi` bucket. |
 | `R2_TCGPLAYER_BUCKET_SECRET_KEY` | yes | — | R2 secret key. |
 | `R2_TCGPLAYER_URL` | yes | — | R2 endpoint, e.g. `https://<account-id>.r2.cloudflarestorage.com`. |
-| `CV_INVENTORY_TCGPLAYER_CATEGORY` | no | `1` | TCGplayer category id. `1` = MTG. |
-| `CV_INVENTORY_CONF_GOOD_SCORE` | no | `0.55` | Confidence tier threshold (top-1 score). |
-| `CV_INVENTORY_CONF_GOOD_GAP` | no | `0.15` | Confidence tier threshold (gap to top-2). |
-| `CV_INVENTORY_CONF_POOR_SCORE` | no | `0.45` | Below this score → `poor`. |
-| `CV_INVENTORY_CONF_POOR_GAP` | no | `0.05` | Below this gap → `poor`. |
+| `SCAN_AND_IDENTIFY_TCGPLAYER_CATEGORY` | no | `1` | TCGplayer category id. `1` = MTG. |
+| `SCAN_AND_IDENTIFY_CONF_GOOD_SCORE` | no | `0.55` | Confidence tier threshold (top-1 score). |
+| `SCAN_AND_IDENTIFY_CONF_GOOD_GAP` | no | `0.15` | Confidence tier threshold (gap to top-2). |
+| `SCAN_AND_IDENTIFY_CONF_POOR_SCORE` | no | `0.45` | Below this score → `poor`. |
+| `SCAN_AND_IDENTIFY_CONF_POOR_GAP` | no | `0.05` | Below this gap → `poor`. |
 | `AWS_DEFAULT_REGION` | no | `auto` | Set by boto3 for R2; usually not needed. |
 
 The container will fail fast at boot with `ConfigError: Missing required environment variables: ...` if any required var is unset. Wire that into your alerting.
@@ -30,28 +30,28 @@ The container will fail fast at boot with `ConfigError: Missing required environ
 
 ```bash
 # On any machine with the source + a real catalog NPZ in catalogs/:
-docker build -t cv-inventory:$(git rev-parse --short HEAD) .
-docker tag  cv-inventory:$(git rev-parse --short HEAD) cv-inventory:latest
+docker build -t scan-and-identify:$(git rev-parse --short HEAD) .
+docker tag  scan-and-identify:$(git rev-parse --short HEAD) scan-and-identify:latest
 ```
 
-The Dockerfile copies `catalogs/` into the image at build time, so the catalog is baked in. **Tagging convention:** use git SHA for releases (`cv-inventory:abc123f`) so rollback is trivial, plus `latest` as a convenience tag.
+The Dockerfile copies `catalogs/` into the image at build time, so the catalog is baked in. **Tagging convention:** use git SHA for releases (`scan-and-identify:abc123f`) so rollback is trivial, plus `latest` as a convenience tag.
 
 ### Pushing to a registry
 
 ```bash
 # GHCR example
-docker tag cv-inventory:abc123f ghcr.io/ipkstef/cv-inventory:abc123f
-docker push ghcr.io/ipkstef/cv-inventory:abc123f
+docker tag scan-and-identify:abc123f ghcr.io/ipkstef/scan-and-identify:abc123f
+docker push ghcr.io/ipkstef/scan-and-identify:abc123f
 ```
 
 ### Running
 
 ```bash
-docker run -d --name cv-inventory \
+docker run -d --name scan-and-identify \
   --restart=unless-stopped \
   -p 8000:8000 \
-  --env-file /etc/cv-inventory/.env \
-  cv-inventory:abc123f
+  --env-file /etc/scan-and-identify/.env \
+  scan-and-identify:abc123f
 ```
 
 The `.env` file should contain the required vars listed above. **Never bake secrets into the image** — the catalog NPZ is the only artifact baked in. Everything else comes from `.env` at runtime.
@@ -81,7 +81,7 @@ TCGplayer ships new products monthly; refresh the catalog so they're identifiabl
 # On mtg-eye:
 ssh mtg-eye
 
-cd /tmp/cv-inventory && git pull origin main && uv pip install -q -e .
+cd /tmp/scan-and-identify && git pull origin main && uv pip install -q -e .
 
 # 1. Pull the latest products.parquet from R2
 uv run python -c "
@@ -97,7 +97,7 @@ print('done')
 "
 
 # 2. Download any new images (existing cache is reused → typically only a few hundred new fetches)
-nohup .venv/bin/cv-inventory download-images \
+nohup .venv/bin/scan-and-identify download-images \
   --products-parquet /tmp/products.parquet \
   --image-cache /tmp/cv-build/imgs \
   --rate 40 --concurrency 32 \
@@ -108,7 +108,7 @@ nohup .venv/bin/cv-inventory download-images \
 
 # 3. Re-embed everything (no network; pure CPU on cached images)
 MONTH=$(date +%Y-%m)
-nohup .venv/bin/cv-inventory build-catalog \
+nohup .venv/bin/scan-and-identify build-catalog \
   --products-parquet /tmp/products.parquet \
   --image-cache /tmp/cv-build/imgs \
   --out /tmp/cv-build/milo1-tcgplayer-mtg-${MONTH}.npz \
@@ -122,14 +122,14 @@ nohup .venv/bin/cv-inventory build-catalog \
 When the build finishes, pull the NPZ back to your laptop:
 
 ```bash
-scp mtg-eye:/tmp/cv-build/milo1-tcgplayer-mtg-${MONTH}.npz /Users/stefanosamanuel/cv-inventory/catalogs/
+scp mtg-eye:/tmp/cv-build/milo1-tcgplayer-mtg-${MONTH}.npz /Users/stefanosamanuel/scan-and-identify/catalogs/
 ```
 
 ### Then rebuild + redeploy
 
 ```bash
-cd ~/cv-inventory
-docker build -t cv-inventory:$(git rev-parse --short HEAD) .
+cd ~/scan-and-identify
+docker build -t scan-and-identify:$(git rev-parse --short HEAD) .
 # push to registry, deploy on production host, drain old container
 ```
 
@@ -181,25 +181,25 @@ curl -s -H "Authorization: Bearer $KEY" http://localhost:8000/sets | jq '.sets[:
 The container logs to stdout in uvicorn's default format. To capture:
 
 ```bash
-docker logs -f cv-inventory
-docker logs cv-inventory 2>&1 | grep -iE "error|warning"
+docker logs -f scan-and-identify
+docker logs scan-and-identify 2>&1 | grep -iE "error|warning"
 ```
 
-In production you'd ship these to your log aggregator of choice. There's nothing structured-logging-aware in cv-inventory today; logs are plain text.
+In production you'd ship these to your log aggregator of choice. There's nothing structured-logging-aware in scan-and-identify today; logs are plain text.
 
 ---
 
 ## Rotating the API key
 
-Generate a new key, update the website's secret, then redeploy with `CV_INVENTORY_API_KEY=<newkey>`:
+Generate a new key, update the website's secret, then redeploy with `SCAN_AND_IDENTIFY_API_KEY=<newkey>`:
 
 ```bash
 NEWKEY=$(openssl rand -base64 48 | tr -d '=+/' | head -c 48)
-echo "CV_INVENTORY_API_KEY=$NEWKEY"
+echo "SCAN_AND_IDENTIFY_API_KEY=$NEWKEY"
 # Update website secret, then:
-docker stop cv-inventory && docker rm cv-inventory
-docker run -d --name cv-inventory --restart=unless-stopped -p 8000:8000 \
-  --env-file /etc/cv-inventory/.env  cv-inventory:latest
+docker stop scan-and-identify && docker rm scan-and-identify
+docker run -d --name scan-and-identify --restart=unless-stopped -p 8000:8000 \
+  --env-file /etc/scan-and-identify/.env  scan-and-identify:latest
 ```
 
 No graceful rotation supported in v1 (single shared key). If you need zero-downtime rotation, you'd want per-key auth — not implemented.
@@ -211,7 +211,7 @@ No graceful rotation supported in v1 (single shared key). If you need zero-downt
 | Symptom | Cause | Fix |
 |---|---|---|
 | Container exits on boot with `ConfigError` | Missing env var | Check `.env`; see required vars table above |
-| Container exits with `FileNotFoundError: catalog.npz` | `CV_INVENTORY_CATALOG_PATH` points at a non-existent file | Verify path; rebuild image if catalog was supposed to be baked in |
+| Container exits with `FileNotFoundError: catalog.npz` | `SCAN_AND_IDENTIFY_CATALOG_PATH` points at a non-existent file | Verify path; rebuild image if catalog was supposed to be baked in |
 | Boot hangs >30s | R2 sync is timing out | Check `R2_TCGPLAYER_URL`, network reachability, credentials |
 | All `/identify` requests return 400 "Could not fetch image" | Consumer storage is unreachable from the container | Network/firewall; pre-signed URLs may have expired |
 | `/identify` returns wrong card consistently for one set | Catalog is stale for that set | Refresh catalog (see above) |

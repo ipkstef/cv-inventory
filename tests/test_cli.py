@@ -4,7 +4,7 @@ import sys
 
 def test_cli_help_exits_zero():
     r = subprocess.run(
-        [sys.executable, "-m", "cv_inventory.cli", "--help"],
+        [sys.executable, "-m", "scan_and_identify.cli", "--help"],
         capture_output=True,
         text=True,
     )

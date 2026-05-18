@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Boots the cv-inventory server locally and hits every endpoint.
-# Requires: docker, jq, curl, a real catalog at $CV_INVENTORY_CATALOG_PATH.
+# Boots the scan-and-identify server locally and hits every endpoint.
+# Requires: docker, jq, curl, a real catalog at $SCAN_AND_IDENTIFY_CATALOG_PATH.
 # Usage:    scripts/smoke_test.sh [scan_image_url]
 #
 # If no scan_image_url is given, /identify uses a known TCGplayer product image.
 
 set -euo pipefail
 
-API_KEY="${CV_INVENTORY_API_KEY:-smoketest}"
+API_KEY="${SCAN_AND_IDENTIFY_API_KEY:-smoketest}"
 PORT="${PORT:-8765}"
-CATALOG="${CV_INVENTORY_CATALOG_PATH:?Set CV_INVENTORY_CATALOG_PATH first}"
+CATALOG="${SCAN_AND_IDENTIFY_CATALOG_PATH:?Set SCAN_AND_IDENTIFY_CATALOG_PATH first}"
 TEST_IMAGE_URL="${1:-https://tcgplayer-cdn.tcgplayer.com/product/218276_in_1000x1000.jpg}"
 TEST_PRODUCT_ID=218276  # Sword of War and Peace (Borderless) — DSK
 TEST_SET_NAME="lightning"  # for /search
@@ -24,13 +24,13 @@ trap cleanup EXIT
 echo "==> Booting cv-inv-smoke (catalog: $(basename "$CATALOG"))"
 docker run -d --rm --name cv-inv-smoke \
     -p "$PORT:8000" \
-    -e CV_INVENTORY_API_KEY="$API_KEY" \
-    -e CV_INVENTORY_CATALOG_PATH="$CATALOG" \
+    -e SCAN_AND_IDENTIFY_API_KEY="$API_KEY" \
+    -e SCAN_AND_IDENTIFY_CATALOG_PATH="$CATALOG" \
     -e R2_TCGPLAYER_BUCKET_ACCESS_KEY="${R2_TCGPLAYER_BUCKET_ACCESS_KEY}" \
     -e R2_TCGPLAYER_BUCKET_SECRET_KEY="${R2_TCGPLAYER_BUCKET_SECRET_KEY}" \
     -e R2_TCGPLAYER_URL="${R2_TCGPLAYER_URL}" \
     -v "$(dirname "$CATALOG"):$(dirname "$CATALOG")" \
-    cv-inventory:test >/dev/null
+    scan-and-identify:test >/dev/null
 
 echo "==> Waiting for /health (up to 60s)"
 for _ in $(seq 1 60); do

@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from cv_inventory.server.app import create_app
-from cv_inventory.server.state import AppState
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.server.app import create_app
+from scan_and_identify.server.state import AppState
+from scan_and_identify.tcgplayer.store import TCGStore
 
 
 def _client(synthetic_catalog, synthetic_parquets):

@@ -1,8 +1,8 @@
 import pytest
 from collector_vision import Catalog
 
-from cv_inventory.set_index import SetIndex
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.set_index import SetIndex
+from scan_and_identify.tcgplayer.store import TCGStore
 
 
 def test_set_index_filters_to_one_set(synthetic_catalog, synthetic_parquets):

@@ -1,10 +1,10 @@
 from collector_vision import Catalog, NeuralEmbedder
 from PIL import Image
 
-from cv_inventory.back_rejector import BackRejector
-from cv_inventory.pipeline import IdentifyPipeline
-from cv_inventory.set_index import SetIndex
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.back_rejector import BackRejector
+from scan_and_identify.pipeline import IdentifyPipeline
+from scan_and_identify.set_index import SetIndex
+from scan_and_identify.tcgplayer.store import TCGStore
 
 
 def _make_pipeline(catalog_path, parquets_path):

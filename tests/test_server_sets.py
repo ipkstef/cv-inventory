@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from cv_inventory.server.app import create_app
-from cv_inventory.server.state import AppState
+from scan_and_identify.server.app import create_app
+from scan_and_identify.server.state import AppState
 
 
 def test_sets_returns_current_first(synthetic_catalog, synthetic_parquets):

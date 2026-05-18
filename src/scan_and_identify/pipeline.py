@@ -9,9 +9,9 @@ import numpy as np
 from collector_vision import NeuralEmbedder, rotate_card_180
 from PIL import Image
 
-from cv_inventory.back_rejector import BackRejector
-from cv_inventory.set_index import SetIndex
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.back_rejector import BackRejector
+from scan_and_identify.set_index import SetIndex
+from scan_and_identify.tcgplayer.store import TCGStore
 
 Confidence = Literal["good", "fair", "poor"]
 
@@ -21,7 +21,7 @@ class ConfidenceThresholds:
     """Thresholds for mapping (top-1 score, gap to top-2) -> confidence tier.
 
     Defaults calibrated against the 172-scan reference eval. Override per-deploy
-    via env vars: CV_INVENTORY_CONF_{GOOD,POOR}_{SCORE,GAP}.
+    via env vars: SCAN_AND_IDENTIFY_CONF_{GOOD,POOR}_{SCORE,GAP}.
     """
 
     good_score: float = 0.55
@@ -38,10 +38,10 @@ class ConfidenceThresholds:
             return float(raw) if raw else default
 
         return cls(
-            good_score=_f("CV_INVENTORY_CONF_GOOD_SCORE", cls.good_score),
-            good_gap=_f("CV_INVENTORY_CONF_GOOD_GAP", cls.good_gap),
-            poor_score=_f("CV_INVENTORY_CONF_POOR_SCORE", cls.poor_score),
-            poor_gap=_f("CV_INVENTORY_CONF_POOR_GAP", cls.poor_gap),
+            good_score=_f("SCAN_AND_IDENTIFY_CONF_GOOD_SCORE", cls.good_score),
+            good_gap=_f("SCAN_AND_IDENTIFY_CONF_GOOD_GAP", cls.good_gap),
+            poor_score=_f("SCAN_AND_IDENTIFY_CONF_POOR_SCORE", cls.poor_score),
+            poor_gap=_f("SCAN_AND_IDENTIFY_CONF_POOR_GAP", cls.poor_gap),
         )
 
     def classify(self, top_score: float, gap_to_next: float) -> Confidence:

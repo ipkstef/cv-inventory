@@ -1,8 +1,8 @@
 import csv
 import io
 
-from cv_inventory.tcgplayer.seller_csv import build_seller_csv
-from cv_inventory.tcgplayer.store import TCGStore
+from scan_and_identify.tcgplayer.seller_csv import build_seller_csv
+from scan_and_identify.tcgplayer.store import TCGStore
 
 SELLER_COLUMNS = [
     "TCGplayer Id",

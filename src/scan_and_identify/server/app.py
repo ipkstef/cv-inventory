@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 
-from cv_inventory.image_fetch import FetchError, fetch_image
-from cv_inventory.server.auth import require_bearer
-from cv_inventory.server.schemas import (
+from scan_and_identify.image_fetch import FetchError, fetch_image
+from scan_and_identify.server.auth import require_bearer
+from scan_and_identify.server.schemas import (
     ExportRequest,
     IdentifyBatchRequest,
     IdentifyBatchResponse,
@@ -16,8 +16,8 @@ from cv_inventory.server.schemas import (
     ResolveSkuRequest,
     SearchResponse,
 )
-from cv_inventory.server.state import AppState
-from cv_inventory.tcgplayer.seller_csv import MergePriceConflict, build_seller_csv
+from scan_and_identify.server.state import AppState
+from scan_and_identify.tcgplayer.seller_csv import MergePriceConflict, build_seller_csv
 
 
 def _candidate_dicts(candidates) -> list[dict]:
@@ -25,7 +25,7 @@ def _candidate_dicts(candidates) -> list[dict]:
 
 
 def create_app(state: AppState) -> FastAPI:
-    app = FastAPI(title="cv-inventory", version="0.1.0")
+    app = FastAPI(title="scan-and-identify", version="0.1.0")
     auth = require_bearer(state.api_key)
     app.state.deps = state
 

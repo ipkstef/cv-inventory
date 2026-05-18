@@ -7,7 +7,7 @@ import respx
 from httpx import Response
 from PIL import Image
 
-from cv_inventory.catalog_build import build_catalog
+from scan_and_identify.catalog_build import build_catalog
 
 
 def _png(color):

@@ -1,4 +1,4 @@
-"""Visual review tool for cv-inventory /identify accuracy.
+"""Visual review tool for scan-and-identify /identify accuracy.
 
 Walks a folder of scan images, runs each through the local API, and emits an
 HTML report sorted by top-1 confidence ascending so the ambiguous ones surface
@@ -160,7 +160,7 @@ def write_html(results: list[dict], out_path: Path, server_port: int, top_k: int
     backs = sum(1 for r in results if r["resp"].get("is_card_back"))
 
     out_path.write_text(f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>cv-inventory review ({n} scans)</title>
+<html><head><meta charset="utf-8"><title>scan-and-identify review ({n} scans)</title>
 <style>
   body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #222; }}
   h1 {{ font-size: 20px; margin: 0 0 8px; }}
@@ -191,7 +191,7 @@ def write_html(results: list[dict], out_path: Path, server_port: int, top_k: int
   .errmsg {{ color: #b91c1c; font-family: monospace; font-size: 12px; }}
 </style></head>
 <body>
-<h1>cv-inventory review — {n} scans</h1>
+<h1>scan-and-identify review — {n} scans</h1>
 <div class="summary">
   errors: {errors} · empty candidates: {empty} · card-back detections: {backs}<br>
   Sorted by top-1 score ascending (low-confidence/ambiguous rows first).<br>

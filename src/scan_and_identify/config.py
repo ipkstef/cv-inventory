@@ -29,8 +29,8 @@ class Config:
     @classmethod
     def from_env(cls) -> Config:
         required = [
-            "CV_INVENTORY_API_KEY",
-            "CV_INVENTORY_CATALOG_PATH",
+            "SCAN_AND_IDENTIFY_API_KEY",
+            "SCAN_AND_IDENTIFY_CATALOG_PATH",
             "R2_TCGPLAYER_BUCKET_ACCESS_KEY",
             "R2_TCGPLAYER_BUCKET_SECRET_KEY",
             "R2_TCGPLAYER_URL",
@@ -39,12 +39,12 @@ class Config:
         if missing:
             raise ConfigError(f"Missing required environment variables: {', '.join(missing)}")
         return cls(
-            api_key=os.environ["CV_INVENTORY_API_KEY"],
-            catalog_path=Path(os.environ["CV_INVENTORY_CATALOG_PATH"]),
+            api_key=os.environ["SCAN_AND_IDENTIFY_API_KEY"],
+            catalog_path=Path(os.environ["SCAN_AND_IDENTIFY_CATALOG_PATH"]),
             r2=R2Config(
                 access_key=os.environ["R2_TCGPLAYER_BUCKET_ACCESS_KEY"],
                 secret_key=os.environ["R2_TCGPLAYER_BUCKET_SECRET_KEY"],
                 endpoint_url=os.environ["R2_TCGPLAYER_URL"],
             ),
-            tcgplayer_category=int(os.environ.get("CV_INVENTORY_TCGPLAYER_CATEGORY", "1")),
+            tcgplayer_category=int(os.environ.get("SCAN_AND_IDENTIFY_TCGPLAYER_CATEGORY", "1")),
         )

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="cv-inventory")
+    parser = argparse.ArgumentParser(prog="scan-and-identify")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     serve = sub.add_parser("serve", help="Run the FastAPI server")
@@ -81,9 +81,9 @@ def _serve(args) -> int:
     load_dotenv(args.env_file)
     import uvicorn
 
-    from cv_inventory.config import Config
-    from cv_inventory.server.app import create_app
-    from cv_inventory.server.state import AppState
+    from scan_and_identify.config import Config
+    from scan_and_identify.server.app import create_app
+    from scan_and_identify.server.state import AppState
 
     config = Config.from_env()
     state = AppState.bootstrap(
@@ -97,7 +97,7 @@ def _serve(args) -> int:
 
 
 def _build_catalog(args) -> int:
-    from cv_inventory.catalog_build import build_catalog
+    from scan_and_identify.catalog_build import build_catalog
 
     build_catalog(
         products_parquet=Path(args.products_parquet),
@@ -111,7 +111,7 @@ def _build_catalog(args) -> int:
 
 
 def _download_images(args) -> int:
-    from cv_inventory.catalog_build import download_only
+    from scan_and_identify.catalog_build import download_only
 
     download_only(
         products_parquet=Path(args.products_parquet),

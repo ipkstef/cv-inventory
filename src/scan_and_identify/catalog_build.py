@@ -22,7 +22,7 @@ from PIL import Image
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "cv-inventory/0.1 (catalog-build; +https://github.com/ipkstef/cv-inventory)"
+USER_AGENT = "scan-and-identify/0.1 (catalog-build; +https://github.com/ipkstef/scan-and-identify)"
 
 
 def _high_res_url(product_id: int) -> str:

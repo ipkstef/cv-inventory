@@ -4,8 +4,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cv_inventory.config import R2Config
-from cv_inventory.tcgplayer.r2_sync import sync_parquets
+from scan_and_identify.config import R2Config
+from scan_and_identify.tcgplayer.r2_sync import sync_parquets
 
 PARQUET_NAMES = [
     "products.parquet",

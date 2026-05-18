@@ -1,10 +1,10 @@
-# cv-inventory API contract
+# scan-and-identify API contract
 
 Stateless HTTP API for scan-based card identification and TCGplayer-compatible
 CSV export. Designed to be called from a consumer website that owns batches,
 corrections, image storage, and the user-facing UI.
 
-- All requests require `Authorization: Bearer $CV_INVENTORY_API_KEY`.
+- All requests require `Authorization: Bearer $SCAN_AND_IDENTIFY_API_KEY`.
 - All requests and responses are JSON, except `POST /export/tcgplayer-csv`
   which returns `text/csv`.
 - All errors follow the shape `{"error": {"code": "string", "message": "string"}}`.
@@ -93,7 +93,7 @@ this server.** Documenting them here so integration teams know what to build.
 All endpoints require:
 
 ```
-Authorization: Bearer $CV_INVENTORY_API_KEY
+Authorization: Bearer $SCAN_AND_IDENTIFY_API_KEY
 ```
 
 Missing or wrong key → `401 Unauthorized` with body:
@@ -482,10 +482,10 @@ Tiers (default thresholds, calibrated against the 172-scan reference eval):
 Override via environment variables (no code change needed):
 
 ```
-CV_INVENTORY_CONF_GOOD_SCORE=0.55
-CV_INVENTORY_CONF_GOOD_GAP=0.15
-CV_INVENTORY_CONF_POOR_SCORE=0.45
-CV_INVENTORY_CONF_POOR_GAP=0.05
+SCAN_AND_IDENTIFY_CONF_GOOD_SCORE=0.55
+SCAN_AND_IDENTIFY_CONF_GOOD_GAP=0.15
+SCAN_AND_IDENTIFY_CONF_POOR_SCORE=0.45
+SCAN_AND_IDENTIFY_CONF_POOR_GAP=0.05
 ```
 
 Tune these for your scanner and accuracy requirements.
@@ -499,7 +499,7 @@ On container start the server:
 1. Loads `.env` and validates required environment variables (fail-fast if missing).
 2. Syncs the 7 TCGplayer parquets from R2 into the local cache (skipped files
    whose local mtime matches the R2 `LastModified`).
-3. Loads the embedding catalog NPZ from `CV_INVENTORY_CATALOG_PATH`.
+3. Loads the embedding catalog NPZ from `SCAN_AND_IDENTIFY_CATALOG_PATH`.
 4. Loads the parquets into the in-memory `TCGStore`.
 5. Pre-slices the catalog by `group_id` (one sub-catalog per TCGplayer set).
 6. Loads the canonical card-back PNG if `--back-image` was passed (otherwise

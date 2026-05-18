@@ -144,6 +144,37 @@ Both `download-images` and `build-catalog` are resumable. The image cache (`/tmp
 
 ---
 
+## Nightly restart for fresh prices
+
+Parquets are a **boot-time snapshot** — once loaded into the in-memory
+`TCGStore`, they don't auto-refresh. TCGplayer publishes new prices roughly
+daily, so a container that runs for two weeks serves two-week-old prices.
+
+Cheapest fix: restart the container every night. R2 sync at boot detects
+the updated parquets and reloads them. Downtime per restart is ~5-10
+seconds (catalog + parquet reload).
+
+Pick a quiet hour (3am local is fine for most use cases):
+
+```bash
+# On the host running the container:
+sudo crontab -e
+# Add:
+0 3 * * * docker restart scan-and-identify >/dev/null 2>&1
+```
+
+Or as a systemd timer if you prefer. If your website handles brief 5xx
+gracefully (it should — networks blip), this is invisible to users.
+
+If you ever need fresher than daily, two next steps would be:
+- Add a `POST /admin/refresh` endpoint that re-syncs parquets without a restart.
+- Background asyncio task inside the container that periodically swaps the
+  TCGStore atomically.
+
+Neither is built yet. Restart-on-cron is the v1 answer.
+
+---
+
 ## Observability
 
 ### What to monitor

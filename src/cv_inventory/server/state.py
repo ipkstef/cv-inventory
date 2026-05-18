@@ -10,7 +10,7 @@ from collector_vision import Catalog, NeuralEmbedder
 
 from cv_inventory.back_rejector import BackRejector
 from cv_inventory.config import Config
-from cv_inventory.pipeline import IdentifyPipeline
+from cv_inventory.pipeline import ConfidenceThresholds, IdentifyPipeline
 from cv_inventory.set_index import SetIndex
 from cv_inventory.tcgplayer.r2_sync import sync_parquets
 from cv_inventory.tcgplayer.store import TCGStore
@@ -36,7 +36,13 @@ class AppState:
         embedder = NeuralEmbedder()
         index = SetIndex.build(catalog, store)
         back = BackRejector.load(back_image, embedder)
-        pipeline = IdentifyPipeline(embedder=embedder, index=index, store=store, back_rejector=back)
+        pipeline = IdentifyPipeline(
+            embedder=embedder,
+            index=index,
+            store=store,
+            back_rejector=back,
+            confidence_thresholds=ConfidenceThresholds.from_env(),
+        )
         return cls(
             api_key=config.api_key,
             catalog=catalog,

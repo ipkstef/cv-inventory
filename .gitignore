@@ -11,3 +11,10 @@ build/
 htmlcov/
 data/cache/
 uv.lock
+.DS_Store
+
+# Local-only data that doesn't belong in source control
+catalogs/
+scan_images/
+report.html
+results.json

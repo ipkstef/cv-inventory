@@ -30,6 +30,7 @@ def test_identify_returns_candidates(synthetic_catalog, synthetic_parquets):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["is_card_back"] is False
+    assert body["confidence"] in {"good", "fair", "poor"}
     assert len(body["candidates"]) == 3
     assert "product_id" in body["candidates"][0]
 

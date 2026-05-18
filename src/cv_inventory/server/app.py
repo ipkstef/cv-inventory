@@ -68,6 +68,7 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(e)) from e
         return {
             "is_card_back": result.is_card_back,
+            "confidence": result.confidence,
             "candidates": _candidate_dicts(result.candidates),
         }
 
@@ -82,6 +83,7 @@ def create_app(state: AppState) -> FastAPI:
                 return {
                     "id": item.id,
                     "is_card_back": False,
+                    "confidence": None,
                     "candidates": [],
                     "error": f"fetch failed: {e}",
                 }
@@ -96,12 +98,14 @@ def create_app(state: AppState) -> FastAPI:
                 return {
                     "id": item.id,
                     "is_card_back": False,
+                    "confidence": None,
                     "candidates": [],
                     "error": str(e),
                 }
             return {
                 "id": item.id,
                 "is_card_back": result.is_card_back,
+                "confidence": result.confidence,
                 "candidates": _candidate_dicts(result.candidates),
                 "error": None,
             }

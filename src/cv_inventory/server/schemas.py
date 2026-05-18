@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+Confidence = Literal["good", "fair", "poor"]
 
 
 class IdentifyRequest(BaseModel):
@@ -26,6 +30,7 @@ class CandidateOut(BaseModel):
 
 class IdentifyResponse(BaseModel):
     is_card_back: bool
+    confidence: Confidence | None = None
     candidates: list[CandidateOut]
 
 
@@ -44,6 +49,7 @@ class IdentifyBatchRequest(BaseModel):
 class IdentifyBatchResult(BaseModel):
     id: str
     is_card_back: bool
+    confidence: Confidence | None = None
     candidates: list[CandidateOut]
     error: str | None = None
 

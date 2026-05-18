@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from collector_vision import NeuralEmbedder, rotate_card_180
@@ -11,6 +12,53 @@ from PIL import Image
 from cv_inventory.back_rejector import BackRejector
 from cv_inventory.set_index import SetIndex
 from cv_inventory.tcgplayer.store import TCGStore
+
+Confidence = Literal["good", "fair", "poor"]
+
+
+@dataclass(frozen=True)
+class ConfidenceThresholds:
+    """Thresholds for mapping (top-1 score, gap to top-2) -> confidence tier.
+
+    Defaults calibrated against the 172-scan reference eval. Override per-deploy
+    via env vars: CV_INVENTORY_CONF_{GOOD,POOR}_{SCORE,GAP}.
+    """
+
+    good_score: float = 0.55
+    good_gap: float = 0.15
+    poor_score: float = 0.45
+    poor_gap: float = 0.05
+
+    @classmethod
+    def from_env(cls) -> ConfidenceThresholds:
+        import os
+
+        def _f(name: str, default: float) -> float:
+            raw = os.environ.get(name)
+            return float(raw) if raw else default
+
+        return cls(
+            good_score=_f("CV_INVENTORY_CONF_GOOD_SCORE", cls.good_score),
+            good_gap=_f("CV_INVENTORY_CONF_GOOD_GAP", cls.good_gap),
+            poor_score=_f("CV_INVENTORY_CONF_POOR_SCORE", cls.poor_score),
+            poor_gap=_f("CV_INVENTORY_CONF_POOR_GAP", cls.poor_gap),
+        )
+
+    def classify(self, top_score: float, gap_to_next: float) -> Confidence:
+        if top_score >= self.good_score and gap_to_next >= self.good_gap:
+            return "good"
+        if top_score < self.poor_score or gap_to_next < self.poor_gap:
+            return "poor"
+        return "fair"
+
+
+# Module-level default for code that doesn't want to thread an instance through.
+DEFAULT_THRESHOLDS = ConfidenceThresholds()
+
+
+def classify_confidence(top_score: float, gap_to_next: float) -> Confidence:
+    """Shorthand using default thresholds."""
+    return DEFAULT_THRESHOLDS.classify(top_score, gap_to_next)
 
 
 @dataclass
@@ -30,6 +78,7 @@ class Candidate:
 class IdentifyResult:
     is_card_back: bool
     candidates: list[Candidate]
+    confidence: Confidence | None = None  # None when candidates is empty
 
 
 class IdentifyPipeline:
@@ -39,11 +88,13 @@ class IdentifyPipeline:
         index: SetIndex,
         store: TCGStore,
         back_rejector: BackRejector,
+        confidence_thresholds: ConfidenceThresholds | None = None,
     ) -> None:
         self._embedder = embedder
         self._index = index
         self._store = store
         self._back = back_rejector
+        self._thresholds = confidence_thresholds or DEFAULT_THRESHOLDS
 
     def identify(
         self,
@@ -70,7 +121,7 @@ class IdentifyPipeline:
 
         top_score = hits[0][0] if hits else 0.0
         if self._back.is_back(embedding=emb, top_catalog_score=top_score):
-            return IdentifyResult(is_card_back=True, candidates=[])
+            return IdentifyResult(is_card_back=True, candidates=[], confidence=None)
 
         candidates = []
         for score, product_id in hits:
@@ -90,4 +141,8 @@ class IdentifyPipeline:
                     image_url=p["image_url"] or "",
                 )
             )
-        return IdentifyResult(is_card_back=False, candidates=candidates)
+        confidence: Confidence | None = None
+        if candidates:
+            gap = candidates[0].score - (candidates[1].score if len(candidates) > 1 else 0.0)
+            confidence = self._thresholds.classify(candidates[0].score, gap)
+        return IdentifyResult(is_card_back=False, candidates=candidates, confidence=confidence)

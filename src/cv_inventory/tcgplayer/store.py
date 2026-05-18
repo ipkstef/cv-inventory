@@ -110,6 +110,39 @@ class TCGStore:
         rows = self._skus_by_product.get(int(product_id), [])
         return [self._sku_to_dict(r) for r in rows]
 
+    def search_products(
+        self,
+        name: str | None = None,
+        collector_number: str | None = None,
+        set_id: int | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Find non-sealed products matching the given filters.
+
+        At least one of ``name`` or ``collector_number`` must be provided —
+        callers enforce this; here, passing both as None returns an empty list
+        rather than the whole catalog.
+
+        - ``name``: case-insensitive substring match against products.name.
+        - ``collector_number``: case-insensitive exact match.
+        - ``set_id``: restricts to one group_id (TCGplayer set).
+        """
+        if not name and not collector_number:
+            return []
+
+        df = self._products
+        df = df[df["is_sealed"] == False]  # noqa: E712
+        if set_id is not None:
+            df = df[df["group_id"] == int(set_id)]
+        if name:
+            df = df[df["name"].str.contains(name, case=False, na=False, regex=False)]
+        if collector_number:
+            cn = collector_number.strip().lower()
+            df = df[df["collector_number"].astype(str).str.lower() == cn]
+
+        df = df.head(int(limit))
+        return [self.product(int(pid)) for pid in df["product_id"]]
+
     def resolve_sku(
         self, product_id: int, printing: str, condition: str, language: str
     ) -> dict | None:

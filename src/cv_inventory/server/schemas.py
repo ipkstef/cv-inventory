@@ -58,6 +58,26 @@ class IdentifyBatchResponse(BaseModel):
     results: list[IdentifyBatchResult]
 
 
+class ProductMatch(BaseModel):
+    """Result shape for /search and similar product-lookup endpoints.
+
+    Same shape as CandidateOut but without a score (no embedding ran).
+    """
+
+    product_id: int
+    name: str
+    set_name: str
+    set_abbr: str
+    group_id: int
+    collector_number: str | None
+    rarity: str | None
+    image_url: str
+
+
+class SearchResponse(BaseModel):
+    results: list[ProductMatch]
+
+
 class ResolveSkuRequest(BaseModel):
     printing: str
     condition: str

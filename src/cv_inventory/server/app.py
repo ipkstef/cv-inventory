@@ -14,6 +14,7 @@ from cv_inventory.server.schemas import (
     IdentifyRequest,
     IdentifyResponse,
     ResolveSkuRequest,
+    SearchResponse,
 )
 from cv_inventory.server.state import AppState
 from cv_inventory.tcgplayer.seller_csv import build_seller_csv
@@ -50,6 +51,43 @@ def create_app(state: AppState) -> FastAPI:
     @router.get("/sets")
     async def sets() -> dict:
         return {"sets": state.store.set_list()}
+
+    @router.get("/search", response_model=SearchResponse)
+    async def search(
+        name: str | None = None,
+        collector_number: str | None = None,
+        set_id: int | None = None,
+        limit: int = 20,
+    ) -> dict:
+        if not name and not collector_number:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one of 'name' or 'collector_number' is required",
+            )
+        if limit < 1 or limit > 100:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+        results = state.store.search_products(
+            name=name,
+            collector_number=collector_number,
+            set_id=set_id,
+            limit=limit,
+        )
+        # store.product() returns "tcgplayer_url" + "clean_name" + "is_sealed" — strip to ProductMatch shape.
+        out = []
+        for p in results:
+            out.append(
+                {
+                    "product_id": p["product_id"],
+                    "name": p["name"],
+                    "set_name": p["set_name"] or "",
+                    "set_abbr": p["set_abbr"] or "",
+                    "group_id": p["group_id"],
+                    "collector_number": p["collector_number"],
+                    "rarity": p["rarity"],
+                    "image_url": p["image_url"] or "",
+                }
+            )
+        return {"results": out}
 
     @router.post("/identify", response_model=IdentifyResponse)
     async def identify(req: IdentifyRequest) -> dict:

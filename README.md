@@ -47,7 +47,9 @@ All endpoints require `Authorization: Bearer $CV_INVENTORY_API_KEY`.
 | `POST /products/{id}/resolve-sku` | (printing, condition, language) → sku_id + prices |
 | `POST /export/tcgplayer-csv` | Confirmed rows → TCGplayer seller-template CSV |
 
-Full request/response shapes live in the design doc at
+**Full API reference + website-owned responsibilities: [`docs/API.md`](docs/API.md).**
+
+Original design context lives at
 `docs/superpowers/specs/2026-05-16-cv-inventory-api-design.md` in the
 CollectorVision repo.
 

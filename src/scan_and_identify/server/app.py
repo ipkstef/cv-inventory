@@ -44,6 +44,7 @@ def create_app(state: AppState) -> FastAPI:
         return {
             "status": "ok",
             "catalog_version": state.catalog_version,
+            "catalog_built_at": state.catalog_built_at,
             "catalog_size": len(state.catalog),
             "parquet_synced_at": state.parquet_synced_at.isoformat(),
         }

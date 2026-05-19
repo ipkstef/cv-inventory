@@ -20,6 +20,7 @@ from scan_and_identify.catalog_build import (
     embed_one,
     preprocess,
     products_to_fetch,
+    read_catalog_built_at,
     tcgplayer_image_urls,
     write_catalog_npz,
 )
@@ -184,3 +185,36 @@ def test_write_catalog_npz_accepts_alternate_source_and_algo(tmp_path):
     data = np.load(out, allow_pickle=False)
     assert str(data["source"]) == "custom"
     assert json.loads(str(data["embedder_spec"]))["algo_key"] == "milo2"
+
+
+def test_write_catalog_npz_bakes_built_at_by_default(tmp_path):
+    out = tmp_path / "c.npz"
+    write_catalog_npz(out, ["1"], np.zeros((1, 128), dtype=np.float32))
+    built_at = read_catalog_built_at(out)
+    assert built_at is not None
+    # Default is current UTC ISO timestamp
+    assert built_at.endswith("Z")
+    assert "T" in built_at
+
+
+def test_write_catalog_npz_accepts_explicit_built_at(tmp_path):
+    out = tmp_path / "c.npz"
+    write_catalog_npz(
+        out, ["1"], np.zeros((1, 128), dtype=np.float32), built_at="2025-01-15T00:00:00Z"
+    )
+    assert read_catalog_built_at(out) == "2025-01-15T00:00:00Z"
+
+
+def test_read_catalog_built_at_returns_none_for_old_npz(tmp_path):
+    # Simulate an old NPZ that doesn't have the built_at key
+    import json
+
+    out = tmp_path / "old.npz"
+    np.savez_compressed(
+        out,
+        embeddings=np.zeros((1, 128), dtype=np.float32),
+        card_ids=np.array(["1"], dtype="<U36"),
+        source="tcgplayer",
+        embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1"}),
+    )
+    assert read_catalog_built_at(out) is None

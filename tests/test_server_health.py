@@ -27,4 +27,6 @@ def test_health_returns_status(synthetic_catalog, synthetic_parquets):
     body = r.json()
     assert body["status"] == "ok"
     assert body["catalog_size"] == 4
-    assert "catalog_version" in body
+    # Version is derived from built_at (synthetic fixture sets built_at="2026-05-19T...")
+    assert body["catalog_version"] == "2026-05"
+    assert body["catalog_built_at"] == "2026-05-19T12:34:56Z"

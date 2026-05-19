@@ -33,6 +33,23 @@ def _client(cfg: R2Config):
     )
 
 
+def download_one_parquet(cfg: R2Config, category: int, name: str, dest: Path) -> Path:
+    """Download a single parquet from R2 (e.g. ``products.parquet``) to ``dest``.
+
+    Unlike :func:`sync_parquets`, always downloads (no freshness check) and
+    writes to an explicit path the caller controls. Used by the
+    ``pull-products-parquet`` CLI for catalog refresh.
+    """
+    if name not in PARQUET_NAMES:
+        raise ValueError(f"Unknown parquet name {name!r}; expected one of {PARQUET_NAMES}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    s3 = _client(cfg)
+    key = f"{category}/{name}"
+    log.info("Downloading %s -> %s", key, dest)
+    s3.download_file(cfg.bucket, key, str(dest))
+    return dest
+
+
 def sync_parquets(cfg: R2Config, category: int, cache_dir: Path) -> dict[str, Path]:
     """Download any parquet whose R2 LastModified is newer than the local mtime.
 

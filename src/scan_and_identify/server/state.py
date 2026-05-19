@@ -9,6 +9,7 @@ from pathlib import Path
 from collector_vision import Catalog, NeuralEmbedder
 
 from scan_and_identify.back_rejector import BackRejector
+from scan_and_identify.catalog_build import read_catalog_built_at
 from scan_and_identify.config import Config
 from scan_and_identify.pipeline import ConfidenceThresholds, IdentifyPipeline
 from scan_and_identify.set_index import SetIndex
@@ -16,11 +17,19 @@ from scan_and_identify.tcgplayer.r2_sync import sync_parquets
 from scan_and_identify.tcgplayer.store import TCGStore
 
 
+def _derive_version(built_at: str | None, fallback_stem: str) -> str:
+    """Compact human-readable version: YYYY-MM from built_at, or filename stem."""
+    if built_at and len(built_at) >= 7:
+        return built_at[:7]  # "2026-05-19T..." -> "2026-05"
+    return fallback_stem
+
+
 @dataclass
 class AppState:
     api_key: str
     catalog: Catalog
     catalog_version: str
+    catalog_built_at: str | None
     embedder: NeuralEmbedder
     store: TCGStore
     set_index: SetIndex
@@ -33,6 +42,7 @@ class AppState:
         parquet_dir = parquet_cache / str(config.tcgplayer_category)
         store = TCGStore.load(parquet_dir)
         catalog = Catalog.load(config.catalog_path)
+        built_at = read_catalog_built_at(config.catalog_path)
         embedder = NeuralEmbedder()
         index = SetIndex.build(catalog, store)
         back = BackRejector.load(back_image, embedder)
@@ -46,7 +56,8 @@ class AppState:
         return cls(
             api_key=config.api_key,
             catalog=catalog,
-            catalog_version=config.catalog_path.stem,
+            catalog_version=_derive_version(built_at, config.catalog_path.stem),
+            catalog_built_at=built_at,
             embedder=embedder,
             store=store,
             set_index=index,
@@ -59,6 +70,7 @@ class AppState:
         """Same as bootstrap but skips R2 sync — used in tests with synthetic fixtures."""
         store = TCGStore.load(parquet_dir)
         catalog = Catalog.load(catalog_path)
+        built_at = read_catalog_built_at(catalog_path)
         embedder = NeuralEmbedder()
         index = SetIndex.build(catalog, store)
         back = BackRejector.load(None, embedder)
@@ -66,7 +78,8 @@ class AppState:
         return cls(
             api_key=api_key,
             catalog=catalog,
-            catalog_version=catalog_path.stem,
+            catalog_version=_derive_version(built_at, catalog_path.stem),
+            catalog_built_at=built_at,
             embedder=embedder,
             store=store,
             set_index=index,

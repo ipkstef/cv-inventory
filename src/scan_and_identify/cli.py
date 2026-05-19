@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -62,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-size", type=int, default=1024, help="Products per download batch (default 1024)"
     )
 
+    pull = sub.add_parser(
+        "pull-products-parquet",
+        help="Download products.parquet from R2 to a local path (used during catalog refresh)",
+    )
+    pull.add_argument("--out", required=True, help="Destination path for products.parquet")
+    pull.add_argument(
+        "--category", type=int, default=1, help="TCGplayer category id (default 1 = MTG)"
+    )
+    pull.add_argument("--env-file", default=".env")
+
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO,
@@ -74,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         return _build_catalog(args)
     if args.cmd == "download-images":
         return _download_images(args)
+    if args.cmd == "pull-products-parquet":
+        return _pull_products_parquet(args)
     return 2
 
 
@@ -120,6 +133,21 @@ def _download_images(args) -> int:
         concurrency=args.concurrency,
         batch_size=args.batch_size,
     )
+    return 0
+
+
+def _pull_products_parquet(args) -> int:
+    load_dotenv(args.env_file)
+
+    from scan_and_identify.config import R2Config
+    from scan_and_identify.tcgplayer.r2_sync import download_one_parquet
+
+    cfg = R2Config(
+        access_key=os.environ["R2_TCGPLAYER_BUCKET_ACCESS_KEY"],
+        secret_key=os.environ["R2_TCGPLAYER_BUCKET_SECRET_KEY"],
+        endpoint_url=os.environ["R2_TCGPLAYER_URL"],
+    )
+    download_one_parquet(cfg, category=args.category, name="products.parquet", dest=Path(args.out))
     return 0
 
 

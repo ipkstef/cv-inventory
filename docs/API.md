@@ -125,15 +125,20 @@ Liveness probe + boot-time metadata.
 ```json
 {
   "status": "ok",
-  "catalog_version": "milo1-tcgplayer-mtg-2026-05",
+  "catalog_version": "2026-05",
+  "catalog_built_at": "2026-05-19T00:00:00Z",
   "catalog_size": 111100,
   "parquet_synced_at": "2026-05-17T07:47:41.990282+00:00"
 }
 ```
 
-`catalog_version` is the NPZ filename stem. `catalog_size` is the number of
-embedded product_ids. `parquet_synced_at` is when the in-memory TCGStore was
-last loaded (== container boot time in v1; we don't hot-reload yet).
+- `catalog_version`: YYYY-MM derived from `catalog_built_at`. Falls back to
+  the NPZ filename stem if `built_at` is missing (legacy catalogs).
+- `catalog_built_at`: ISO-8601 UTC timestamp baked into the NPZ at build
+  time. The authoritative "when was this catalog produced" signal.
+- `catalog_size`: number of embedded product_ids.
+- `parquet_synced_at`: when the in-memory `TCGStore` was last loaded
+  (== container boot time in v1; we don't hot-reload yet).
 
 ---
 

@@ -28,6 +28,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC
 from pathlib import Path
 
 import httpx
@@ -188,20 +189,41 @@ def write_catalog_npz(
     *,
     source: str = "tcgplayer",
     algo_key: str = "milo1",
+    built_at: str | None = None,
 ) -> None:
     """Write an NPZ in the format CollectorVision's :class:`Catalog` reads.
 
     ``embeddings`` should already be L2-normalised (use :func:`embed_one`).
     ``card_ids`` should be parallel to embeddings — same length, same order.
+    ``built_at`` is an ISO-8601 UTC timestamp; defaults to "now". It's
+    embedded in the NPZ so the server can surface it on /health without
+    relying on filename parsing.
     """
+    from datetime import datetime
+
     path.parent.mkdir(parents=True, exist_ok=True)
+    if built_at is None:
+        built_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     np.savez_compressed(
         path,
         embeddings=embeddings,
         card_ids=np.array(card_ids, dtype="<U36"),
         source=source,
         embedder_spec=json.dumps({"kind": "neural", "algo_key": algo_key}),
+        built_at=built_at,
     )
+
+
+def read_catalog_built_at(path: Path) -> str | None:
+    """Return the ``built_at`` ISO timestamp from a catalog NPZ, or None if absent.
+
+    Old NPZs from before this field was added return None — callers should
+    fall back to the file's mtime or just report "unknown".
+    """
+    data = np.load(path, allow_pickle=False)
+    if "built_at" in data.files:
+        return str(data["built_at"])
+    return None
 
 
 # =============================================================================

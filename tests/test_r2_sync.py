@@ -5,7 +5,7 @@ import pytest
 from moto import mock_aws
 
 from scan_and_identify.config import R2Config
-from scan_and_identify.tcgplayer.r2_sync import sync_parquets
+from scan_and_identify.tcgplayer.r2_sync import download_one_parquet, sync_parquets
 
 PARQUET_NAMES = [
     "products.parquet",
@@ -41,6 +41,25 @@ def test_sync_downloads_all_seven_parquets(fake_r2, tmp_path):
     for name in PARQUET_NAMES:
         assert paths[name].exists()
         assert paths[name].read_bytes().startswith(b"FAKE-")
+
+
+def test_download_one_parquet_writes_to_explicit_path(fake_r2, tmp_path):
+    cfg = R2Config(
+        access_key="ak", secret_key="sk", endpoint_url="http://fake.r2.cloudflarestorage.com"
+    )
+    dest = tmp_path / "subdir" / "products.parquet"
+    out = download_one_parquet(cfg, category=1, name="products.parquet", dest=dest)
+    assert out == dest
+    assert dest.exists()
+    assert dest.read_bytes() == b"FAKE-products.parquet"
+
+
+def test_download_one_parquet_rejects_unknown_name(fake_r2, tmp_path):
+    cfg = R2Config(
+        access_key="ak", secret_key="sk", endpoint_url="http://fake.r2.cloudflarestorage.com"
+    )
+    with pytest.raises(ValueError, match="Unknown parquet name"):
+        download_one_parquet(cfg, category=1, name="bogus.parquet", dest=tmp_path / "x")
 
 
 def test_sync_skips_when_local_is_fresh(fake_r2, tmp_path):

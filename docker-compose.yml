@@ -1,7 +1,10 @@
 services:
   scan-and-identify:
+    # Production: `docker compose pull` grabs the latest image built by the
+    # GitHub Actions "Build image" workflow (manual trigger only).
+    # Local dev: `docker compose up --build` builds from local source instead.
+    image: ghcr.io/ipkstef/scan-and-identify:latest
     build: .
-    image: scan-and-identify:latest
     container_name: scan-and-identify
     restart: unless-stopped
     env_file: .env

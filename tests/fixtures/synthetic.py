@@ -21,6 +21,7 @@ def write_synthetic_catalog(path: Path, product_ids: list[int]) -> None:
         card_ids=np.array([str(pid) for pid in product_ids], dtype="<U36"),
         source="tcgplayer",
         embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1"}),
+        built_at="2026-05-19T12:34:56Z",
     )
 
 

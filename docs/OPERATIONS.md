@@ -26,35 +26,31 @@ The container will fail fast at boot with `ConfigError: Missing required environ
 
 ## Deployment
 
-### Image build
+Images are built by the **`Build image` GitHub Actions workflow** (manual
+trigger) and published to `ghcr.io/ipkstef/scan-and-identify` with two
+tags per build:
+
+- `ghcr.io/ipkstef/scan-and-identify:<short-sha>` — pinned, for rollback
+- `ghcr.io/ipkstef/scan-and-identify:latest` — convenience
+
+On any production host:
 
 ```bash
-# On any machine with the source + a real catalog NPZ in catalogs/:
-docker build -t scan-and-identify:$(git rev-parse --short HEAD) .
-docker tag  scan-and-identify:$(git rev-parse --short HEAD) scan-and-identify:latest
+# One-time setup
+sudo apt update && sudo apt install -y docker.io docker-compose-plugin
+mkdir scan-and-identify && cd scan-and-identify
+curl -fsSLO https://raw.githubusercontent.com/ipkstef/scan-and-identify/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/ipkstef/scan-and-identify/main/.env.example
+cp .env.example .env && nano .env   # fill in secrets
+
+# Deploy or upgrade
+docker compose pull && docker compose up -d
 ```
 
-The Dockerfile copies `catalogs/` into the image at build time, so the catalog is baked in. **Tagging convention:** use git SHA for releases (`scan-and-identify:abc123f`) so rollback is trivial, plus `latest` as a convenience tag.
+That's the whole production deploy. No git clone, no LFS, no Docker build on the host.
 
-### Pushing to a registry
-
-```bash
-# GHCR example
-docker tag scan-and-identify:abc123f ghcr.io/ipkstef/scan-and-identify:abc123f
-docker push ghcr.io/ipkstef/scan-and-identify:abc123f
-```
-
-### Running
-
-```bash
-docker run -d --name scan-and-identify \
-  --restart=unless-stopped \
-  -p 8000:8000 \
-  --env-file /etc/scan-and-identify/.env \
-  scan-and-identify:abc123f
-```
-
-The `.env` file should contain the required vars listed above. **Never bake secrets into the image** — the catalog NPZ is the only artifact baked in. Everything else comes from `.env` at runtime.
+Rollback to a specific image SHA: edit `docker-compose.yml` to pin
+`ghcr.io/ipkstef/scan-and-identify:<sha>` and `docker compose up -d`.
 
 ### Resource sizing
 
@@ -71,76 +67,69 @@ Single container handles **~10-20 RPS** depending on rotation-invariance and ima
 
 ## Catalog refresh (monthly)
 
-TCGplayer ships new products monthly; refresh the catalog so they're identifiable.
+TCGplayer ships new products roughly monthly; refresh the catalog so they're
+identifiable. The whole refresh is one script + one button click + one
+`docker compose pull`.
 
-**This runs on mtg-eye, not locally.** See `~/.claude/projects/-Users-stefanosamanuel-CollectorVision/memory/feedback_catalog_build_host.md` for context.
+### 1. Generate a new NPZ
 
-### One-shot refresh
-
-```bash
-# On mtg-eye:
-ssh mtg-eye
-
-cd /tmp/scan-and-identify && git pull origin main && uv pip install -q -e .
-
-# 1. Pull the latest products.parquet from R2
-uv run python -c "
-import os, boto3
-from dotenv import load_dotenv; load_dotenv()
-s3 = boto3.client('s3',
-  endpoint_url=os.environ['R2_TCGPLAYER_URL'],
-  aws_access_key_id=os.environ['R2_TCGPLAYER_BUCKET_ACCESS_KEY'],
-  aws_secret_access_key=os.environ['R2_TCGPLAYER_BUCKET_SECRET_KEY'],
-  region_name='auto')
-s3.download_file('tcgplayerapi', '1/products.parquet', '/tmp/products.parquet')
-print('done')
-"
-
-# 2. Download any new images (existing cache is reused → typically only a few hundred new fetches)
-nohup .venv/bin/scan-and-identify download-images \
-  --products-parquet /tmp/products.parquet \
-  --image-cache /tmp/cv-build/imgs \
-  --rate 40 --concurrency 32 \
-  > /tmp/cv-build/download.log 2>&1 &
-
-# Wait for completion. Monthly delta is typically a few hundred new cards.
-# Check: tail -f /tmp/cv-build/download.log
-
-# 3. Re-embed everything (no network; pure CPU on cached images)
-MONTH=$(date +%Y-%m)
-nohup .venv/bin/scan-and-identify build-catalog \
-  --products-parquet /tmp/products.parquet \
-  --image-cache /tmp/cv-build/imgs \
-  --out /tmp/cv-build/milo1-tcgplayer-mtg-${MONTH}.npz \
-  --rate 40 --concurrency 32 \
-  > /tmp/cv-build/embed.log 2>&1 &
-
-# This takes ~75-90 min on mtg-eye for the full 111k catalog. Cached images = no network.
-# Check: tail -f /tmp/cv-build/embed.log
-```
-
-When the build finishes, pull the NPZ back to your laptop:
+On any machine with Docker, the repo cloned (with LFS), and a populated
+`.env`:
 
 ```bash
-scp mtg-eye:/tmp/cv-build/milo1-tcgplayer-mtg-${MONTH}.npz /Users/stefanosamanuel/scan-and-identify/catalogs/
+cd scan-and-identify
+./scripts/refresh-catalog.sh
 ```
 
-### Then rebuild + redeploy
+The script runs entirely inside the existing Docker image — no Python venv,
+no AWS CLI, no host toolchain. It:
+
+1. Pulls the latest `products.parquet` from R2.
+2. Downloads any new card images (existing cache reused — typical month is a
+   few hundred new products on top of ~110k cached).
+3. Re-embeds the full catalog (~75 min CPU; the slow step).
+4. Writes the result to `catalogs/catalog.npz` and bakes a `built_at`
+   timestamp into the NPZ.
+
+Image cache lives at `~/scan-and-identify-cache/` by default; override with
+`IMAGE_CACHE=/path/to/cache`. Other knobs: `RATE`, `CONCURRENCY`, `IMAGE_TAG`.
+
+### 2. Commit + trigger CI
 
 ```bash
-cd ~/scan-and-identify
-docker build -t scan-and-identify:$(git rev-parse --short HEAD) .
-# push to registry, deploy on production host, drain old container
+git add catalogs/catalog.npz
+git commit -m "Refresh catalog $(date +%Y-%m)"
+git push
 ```
 
-### Performance tuning during refresh
+Then in GitHub: **Actions → Build image → Run workflow**. CI builds a new
+image tagged with the SHA + `:latest` and pushes to GHCR. ~3-5 min.
 
-- The download phase is rate-limited (we observed clean 40 req/s on Cloudflare-fronted TCGplayer CDN with zero throttling). Push higher cautiously — monitor for 429/503.
-- The embed phase is CPU-bound and serial because Milo's ONNX is exported with `batch_size=1`. ~25 products/sec is the ceiling without an engine-side fix.
+### 3. Deploy
+
+On the production host:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Container restarts with the new image and the new catalog. ~10s downtime.
+
+### Performance tuning
+
+- The download phase is rate-limited. We observed clean 40 req/s on
+  Cloudflare-fronted TCGplayer CDN with zero throttling — push higher
+  cautiously (`RATE=60`) and monitor for 429/503.
+- The embed phase is CPU-bound and serial because Milo's ONNX is exported
+  with `batch_size=1`. ~25 products/sec is the ceiling without an
+  engine-side fix.
 
 ### Resume if the build dies
 
-Both `download-images` and `build-catalog` are resumable. The image cache (`/tmp/cv-build/imgs`) persists between runs, so re-running skips anything already downloaded. The embed pass re-embeds everything (we don't incrementally update the NPZ), but downloads are the slow part — embed-only after a crash is ~75 min vs ~90 min for the full pipeline.
+The image cache persists between runs; re-running the refresh script skips
+anything already downloaded. The embed pass re-embeds everything (we don't
+incrementally update the NPZ), but downloads are the slow part — embed-only
+after a crash is ~75 min vs ~90 min for the full pipeline.
 
 ---
 

@@ -68,15 +68,34 @@ class SetIndex:
         return cls(full=catalog, by_set=by_set, name_phash_by_pid=phash_by_pid)
 
     def search(
-        self, embedding: np.ndarray, set_id: int | None, top_k: int
+        self, embedding: np.ndarray, set_ids: list[int] | None, top_k: int
     ) -> list[tuple[float, int]]:
-        if set_id is None:
-            target = self._full
-        else:
-            if set_id not in self._by_set:
-                raise KeyError(f"Unknown set_id {set_id}")
-            target = self._by_set[set_id]
-        return [(score, int(cid)) for score, cid in target.search(embedding, top_k=top_k)]
+        """Top-K cosine hits, optionally restricted to a union of groups.
+
+        ``set_ids=None`` searches the full catalog. A single-element list takes
+        the fast path through that group's pre-sliced sub-catalog. With
+        multiple ids, we search each sub-catalog independently and merge —
+        cheap for the realistic case (M=2-5). Unknown ids raise ``KeyError``
+        (strict): callers should validate before sending.
+        """
+        if set_ids is None:
+            return [
+                (score, int(cid))
+                for score, cid in self._full.search(embedding, top_k=top_k)
+            ]
+        if len(set_ids) == 0:
+            raise ValueError("set_ids must be None or a non-empty list")
+
+        all_hits: list[tuple[float, int]] = []
+        for sid in set_ids:
+            if sid not in self._by_set:
+                raise KeyError(f"Unknown set_id {sid}")
+            target = self._by_set[sid]
+            all_hits.extend(
+                (score, int(cid)) for score, cid in target.search(embedding, top_k=top_k)
+            )
+        all_hits.sort(key=lambda x: x[0], reverse=True)
+        return all_hits[:top_k]
 
     def name_phash_for(self, product_id: int) -> np.uint64 | None:
         """Return the catalog's name-region pHash for ``product_id``, or None."""

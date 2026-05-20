@@ -99,7 +99,7 @@ def create_app(state: AppState) -> FastAPI:
         try:
             result = state.pipeline.identify(
                 image=image,
-                set_id=req.set_id,
+                set_ids=req.set_ids,
                 top_k=req.top_k,
                 rotation_invariant=req.rotation_invariant,
             )
@@ -129,7 +129,7 @@ def create_app(state: AppState) -> FastAPI:
             try:
                 result = state.pipeline.identify(
                     image=image,
-                    set_id=req.set_id,
+                    set_ids=req.set_ids,
                     top_k=req.top_k,
                     rotation_invariant=req.rotation_invariant,
                 )

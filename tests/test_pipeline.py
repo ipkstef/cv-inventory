@@ -23,7 +23,7 @@ def _make_pipeline(catalog_path, parquets_path):
 def test_pipeline_returns_candidates_with_metadata(synthetic_catalog, synthetic_parquets):
     pipeline = _make_pipeline(synthetic_catalog, synthetic_parquets)
     img = Image.new("RGB", (448, 448), (200, 50, 50))
-    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=False)
+    result = pipeline.identify(img, set_ids=None, top_k=3, rotation_invariant=False)
     assert result.is_card_back is False
     assert len(result.candidates) == 3
     top = result.candidates[0]
@@ -35,14 +35,26 @@ def test_pipeline_returns_candidates_with_metadata(synthetic_catalog, synthetic_
 def test_pipeline_set_lock_restricts_results(synthetic_catalog, synthetic_parquets):
     pipeline = _make_pipeline(synthetic_catalog, synthetic_parquets)
     img = Image.new("RGB", (448, 448), (200, 50, 50))
-    result = pipeline.identify(img, set_id=100, top_k=5, rotation_invariant=False)
+    result = pipeline.identify(img, set_ids=[100], top_k=5, rotation_invariant=False)
     assert all(c.group_id == 100 for c in result.candidates)
+
+
+def test_pipeline_set_ids_union_restricts_to_listed_sets(synthetic_catalog, synthetic_parquets):
+    pipeline = _make_pipeline(synthetic_catalog, synthetic_parquets)
+    img = Image.new("RGB", (448, 448), (200, 50, 50))
+    # Both sets 100 and 200 exist — union should include both
+    result = pipeline.identify(img, set_ids=[100, 200], top_k=5, rotation_invariant=False)
+    groups = {c.group_id for c in result.candidates}
+    assert groups <= {100, 200}
+    # Single-set lock should still produce a strict subset of the union
+    only_100 = pipeline.identify(img, set_ids=[100], top_k=5, rotation_invariant=False)
+    assert all(c.group_id == 100 for c in only_100.candidates)
 
 
 def test_pipeline_rotation_invariant_does_not_break(synthetic_catalog, synthetic_parquets):
     pipeline = _make_pipeline(synthetic_catalog, synthetic_parquets)
     img = Image.new("RGB", (448, 448), (200, 50, 50))
-    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=True)
+    result = pipeline.identify(img, set_ids=None, top_k=3, rotation_invariant=True)
     assert len(result.candidates) == 3
 
 
@@ -71,7 +83,7 @@ def test_pipeline_reranks_by_combined_score(synthetic_catalog, synthetic_parquet
     # Probe embedding-only ordering to identify top-1/top-2 before rerank.
     pre_index = SetIndex.build(catalog, store, name_phashes=None)
     arr = np.asarray(embedder.embed(img.convert("RGB").resize((448, 448))), dtype=np.float32)
-    pre_hits = pre_index.search(arr, set_id=None, top_k=3)
+    pre_hits = pre_index.search(arr, set_ids=None, top_k=3)
     top1_pid = pre_hits[0][1]
     top2_pid = pre_hits[1][1]
 
@@ -88,7 +100,7 @@ def test_pipeline_reranks_by_combined_score(synthetic_catalog, synthetic_parquet
         store=store,
         back_rejector=BackRejector(back_embedding=None),
     )
-    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=False)
+    result = pipeline.identify(img, set_ids=None, top_k=3, rotation_invariant=False)
     assert result.candidates[0].product_id == top2_pid
 
 
@@ -105,7 +117,7 @@ def test_pipeline_skips_rerank_when_phashes_missing(synthetic_catalog, synthetic
         back_rejector=BackRejector(back_embedding=None),
     )
     img = Image.new("RGB", (448, 448), (200, 50, 50))
-    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=False)
+    result = pipeline.identify(img, set_ids=None, top_k=3, rotation_invariant=False)
     assert len(result.candidates) == 3
     scores = [c.score for c in result.candidates]
     assert scores == sorted(scores, reverse=True)

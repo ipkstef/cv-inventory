@@ -43,11 +43,53 @@ def test_identify_with_set_lock(synthetic_catalog, synthetic_parquets):
         m.get(url).mock(return_value=Response(200, content=_png_bytes()))
         r = client.post(
             "/identify",
-            json={"image_url": url, "set_id": 100, "top_k": 5, "rotation_invariant": False},
+            json={"image_url": url, "set_ids": [100], "top_k": 5, "rotation_invariant": False},
             headers={"Authorization": "Bearer k"},
         )
     assert r.status_code == 200
     assert all(c["group_id"] == 100 for c in r.json()["candidates"])
+
+
+def test_identify_with_set_ids_union(synthetic_catalog, synthetic_parquets):
+    state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
+    client = TestClient(create_app(state))
+    url = "https://example.com/scan.png"
+    with respx.mock(assert_all_called=True) as m:
+        m.get(url).mock(return_value=Response(200, content=_png_bytes()))
+        r = client.post(
+            "/identify",
+            json={"image_url": url, "set_ids": [100, 200], "top_k": 5, "rotation_invariant": False},
+            headers={"Authorization": "Bearer k"},
+        )
+    assert r.status_code == 200
+    groups = {c["group_id"] for c in r.json()["candidates"]}
+    assert groups <= {100, 200}
+
+
+def test_identify_with_unknown_set_id_in_list_returns_404(synthetic_catalog, synthetic_parquets):
+    state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
+    client = TestClient(create_app(state))
+    url = "https://example.com/scan.png"
+    with respx.mock(assert_all_called=True) as m:
+        m.get(url).mock(return_value=Response(200, content=_png_bytes()))
+        r = client.post(
+            "/identify",
+            json={"image_url": url, "set_ids": [100, 99999], "rotation_invariant": False},
+            headers={"Authorization": "Bearer k"},
+        )
+    assert r.status_code == 404
+    assert "99999" in r.json()["error"]["message"]
+
+
+def test_identify_rejects_empty_set_ids(synthetic_catalog, synthetic_parquets):
+    state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
+    client = TestClient(create_app(state))
+    r = client.post(
+        "/identify",
+        json={"image_url": "https://example.com/x.png", "set_ids": []},
+        headers={"Authorization": "Bearer k"},
+    )
+    assert r.status_code == 422  # Pydantic validation error
 
 
 def test_identify_image_fetch_404(synthetic_catalog, synthetic_parquets):

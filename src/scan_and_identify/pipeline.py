@@ -125,7 +125,7 @@ class IdentifyPipeline:
     def identify(
         self,
         image: Image.Image,
-        set_id: int | None,
+        set_ids: list[int] | None,
         top_k: int,
         rotation_invariant: bool,
     ) -> IdentifyResult:
@@ -139,15 +139,15 @@ class IdentifyPipeline:
             rotated = rotate_card_180(img)
             emb_a = np.asarray(self._embedder.embed(img), dtype=np.float32)
             emb_b = np.asarray(self._embedder.embed(rotated), dtype=np.float32)
-            hits_a = self._index.search(emb_a, set_id=set_id, top_k=top_k)
-            hits_b = self._index.search(emb_b, set_id=set_id, top_k=top_k)
+            hits_a = self._index.search(emb_a, set_ids=set_ids, top_k=top_k)
+            hits_b = self._index.search(emb_b, set_ids=set_ids, top_k=top_k)
             if hits_b and (not hits_a or hits_b[0][0] > hits_a[0][0]):
                 emb, hits, used_180 = emb_b, hits_b, True
             else:
                 emb, hits, used_180 = emb_a, hits_a, False
         else:
             emb = np.asarray(self._embedder.embed(img), dtype=np.float32)
-            hits = self._index.search(emb, set_id=set_id, top_k=top_k)
+            hits = self._index.search(emb, set_ids=set_ids, top_k=top_k)
             used_180 = False
 
         top_score = hits[0][0] if hits else 0.0

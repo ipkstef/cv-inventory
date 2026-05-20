@@ -4,16 +4,30 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Confidence = Literal["good", "fair", "poor"]
 
 
+def _validate_set_ids(v: list[int] | None) -> list[int] | None:
+    """Reject empty list — None means "no lock", an empty list is ambiguous and
+    almost always a caller bug (forgot to populate it). Force the caller to be
+    explicit."""
+    if v is not None and len(v) == 0:
+        raise ValueError("set_ids must be None or a non-empty list of group_ids")
+    return v
+
+
 class IdentifyRequest(BaseModel):
     image_url: str
-    set_id: int | None = None
+    set_ids: list[int] | None = None
     top_k: int = Field(default=5, ge=1, le=20)
     rotation_invariant: bool = True
+
+    @field_validator("set_ids")
+    @classmethod
+    def _vsi(cls, v: list[int] | None) -> list[int] | None:
+        return _validate_set_ids(v)
 
 
 class CandidateOut(BaseModel):
@@ -41,9 +55,14 @@ class IdentifyBatchItem(BaseModel):
 
 class IdentifyBatchRequest(BaseModel):
     images: list[IdentifyBatchItem]
-    set_id: int | None = None
+    set_ids: list[int] | None = None
     top_k: int = Field(default=5, ge=1, le=20)
     rotation_invariant: bool = True
+
+    @field_validator("set_ids")
+    @classmethod
+    def _vsi(cls, v: list[int] | None) -> list[int] | None:
+        return _validate_set_ids(v)
 
 
 class IdentifyBatchResult(BaseModel):

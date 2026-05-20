@@ -1285,8 +1285,13 @@ ssh mtg-eye
 cd ~/scan-and-identify
 git pull origin main
 docker compose pull   # pulls the new server image (needed because refresh-catalog.sh runs INSIDE it)
-./scripts/refresh-catalog.sh
+IMAGE_CACHE=/home/sammy/cv-build/imgs ./scripts/refresh-catalog.sh
 ```
+
+Note the explicit `IMAGE_CACHE` — the warm cache (~110k PNGs already downloaded)
+lives at `/home/sammy/cv-build/imgs` on mtg-eye. Without this override the
+script defaults to `~/scan-and-identify-cache/` and will re-download every image
+from the TCGplayer CDN, adding hours to the rebuild.
 
 Expected: ~75 min embed phase + a few seconds pHash compute → `catalogs/catalog.npz` updated with `algo_key=milo1+phash1`.
 

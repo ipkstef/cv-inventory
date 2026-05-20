@@ -25,11 +25,34 @@ def test_store_search_by_collector_number_exact(synthetic_parquets):
     assert pids == {1002}
 
 
-def test_store_search_with_set_filter(synthetic_parquets):
+def test_store_search_with_single_set_filter(synthetic_parquets):
     store = TCGStore.load(synthetic_parquets)
-    results = store.search_products(name="card", set_id=200)
+    results = store.search_products(name="card", set_ids=[200])
     pids = {r["product_id"] for r in results}
     assert pids == {2001}  # Beta Card 1, the only product in set 200
+
+
+def test_store_search_with_union_set_filter(synthetic_parquets):
+    store = TCGStore.load(synthetic_parquets)
+    results = store.search_products(name="card", set_ids=[100, 200])
+    pids = {r["product_id"] for r in results}
+    assert pids == {1001, 1002, 1003, 2001}
+
+
+def test_store_search_rejects_empty_set_ids(synthetic_parquets):
+    import pytest
+
+    store = TCGStore.load(synthetic_parquets)
+    with pytest.raises(ValueError, match="non-empty"):
+        store.search_products(name="card", set_ids=[])
+
+
+def test_store_search_rejects_unknown_set_id(synthetic_parquets):
+    import pytest
+
+    store = TCGStore.load(synthetic_parquets)
+    with pytest.raises(KeyError, match="99999"):
+        store.search_products(name="card", set_ids=[100, 99999])
 
 
 def test_store_search_empty_when_no_filters(synthetic_parquets):
@@ -60,15 +83,38 @@ def test_search_endpoint_returns_matches(synthetic_catalog, synthetic_parquets):
     assert "name" in results[0]
 
 
-def test_search_endpoint_set_filter(synthetic_catalog, synthetic_parquets):
+def test_search_endpoint_single_set_filter(synthetic_catalog, synthetic_parquets):
     client = _client(synthetic_catalog, synthetic_parquets)
     r = client.get(
         "/search",
-        params={"name": "card", "set_id": 100},
+        params={"name": "card", "set_ids": 100},
         headers={"Authorization": "Bearer k"},
     )
     assert r.status_code == 200
     assert {x["group_id"] for x in r.json()["results"]} == {100}
+
+
+def test_search_endpoint_union_set_filter(synthetic_catalog, synthetic_parquets):
+    client = _client(synthetic_catalog, synthetic_parquets)
+    # Repeated query param for list: ?set_ids=100&set_ids=200
+    r = client.get(
+        "/search",
+        params=[("name", "card"), ("set_ids", 100), ("set_ids", 200)],
+        headers={"Authorization": "Bearer k"},
+    )
+    assert r.status_code == 200
+    assert {x["group_id"] for x in r.json()["results"]} <= {100, 200}
+
+
+def test_search_endpoint_unknown_set_id_is_404(synthetic_catalog, synthetic_parquets):
+    client = _client(synthetic_catalog, synthetic_parquets)
+    r = client.get(
+        "/search",
+        params=[("name", "card"), ("set_ids", 100), ("set_ids", 99999)],
+        headers={"Authorization": "Bearer k"},
+    )
+    assert r.status_code == 404
+    assert "99999" in r.json()["error"]["message"]
 
 
 def test_search_endpoint_limit_clamp(synthetic_catalog, synthetic_parquets):

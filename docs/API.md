@@ -272,7 +272,7 @@ UI when the top-K from `/identify` doesn't contain the right card.
 |---|---|---|---|
 | `name` | string | — | Case-insensitive substring of the product name. |
 | `collector_number` | string | — | Case-insensitive exact match against the collector number. |
-| `set_id` | int | — | Optional filter to one set. |
+| `set_ids` | list[int] | — | Optional filter to a **union** of sets. Repeat the param for multiple ids: `?set_ids=24234&set_ids=23445`. Unknown id → 404 (strict, same as `/identify`). Empty → 422. |
 | `limit` | int | 20 | 1-100. |
 
 **At least one of `name` or `collector_number` is required.** Empty query →
@@ -532,10 +532,11 @@ the `Change log` section at the bottom of this file.
 
 ## Change log
 
-- 2026-05-20 — `/identify` and `/identify-batch`: replaced `set_id: int | null`
-  with `set_ids: list[int] | null`. Single-set lock is `[24234]`; union lock is
-  `[24234, 23445]`. Empty list rejected with 422; any unknown id in the list
-  rejects the whole request with 404 (strict).
+- 2026-05-20 — `/identify`, `/identify-batch`, and `/search`: replaced `set_id`
+  with `set_ids: list[int] | null` (POST body) / repeated `?set_ids=` query
+  param (GET). Single-set lock is `[24234]`; union lock is `[24234, 23445]`.
+  Empty list rejected with 422; any unknown id in the list rejects the whole
+  request with 404 (strict).
 - 2026-05-19 — Added pHash-on-name rerank atop Milo top-K. `score` is now
   the combined `0.85 · cosine + 0.15 · pHash similarity`. Catalog format
   bumped to `milo1+phash1`; legacy `milo1` catalogs are rejected at boot.

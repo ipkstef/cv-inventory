@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from scan_and_identify.image_fetch import FetchError, fetch_image
@@ -57,7 +57,7 @@ def create_app(state: AppState) -> FastAPI:
     async def search(
         name: str | None = None,
         collector_number: str | None = None,
-        set_id: int | None = None,
+        set_ids: list[int] | None = Query(default=None),
         limit: int = 20,
     ) -> dict:
         if not name and not collector_number:
@@ -67,12 +67,17 @@ def create_app(state: AppState) -> FastAPI:
             )
         if limit < 1 or limit > 100:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
-        results = state.store.search_products(
-            name=name,
-            collector_number=collector_number,
-            set_id=set_id,
-            limit=limit,
-        )
+        try:
+            results = state.store.search_products(
+                name=name,
+                collector_number=collector_number,
+                set_ids=set_ids,
+                limit=limit,
+            )
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
         # store.product() returns "tcgplayer_url" + "clean_name" + "is_sealed" — strip to ProductMatch shape.
         out = []
         for p in results:

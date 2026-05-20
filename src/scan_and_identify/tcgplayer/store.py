@@ -114,7 +114,7 @@ class TCGStore:
         self,
         name: str | None = None,
         collector_number: str | None = None,
-        set_id: int | None = None,
+        set_ids: list[int] | None = None,
         limit: int = 20,
     ) -> list[dict]:
         """Find non-sealed products matching the given filters.
@@ -125,15 +125,24 @@ class TCGStore:
 
         - ``name``: case-insensitive substring match against products.name.
         - ``collector_number``: case-insensitive exact match.
-        - ``set_id``: restricts to one group_id (TCGplayer set).
+        - ``set_ids``: restricts to the union of these group_ids. Empty list
+          rejected (use None for "no lock"). Unknown ids raise KeyError
+          (strict, matches /identify's contract — callers should validate
+          against /sets before sending).
         """
         if not name and not collector_number:
             return []
 
         df = self._products
         df = df[df["is_sealed"] == False]  # noqa: E712
-        if set_id is not None:
-            df = df[df["group_id"] == int(set_id)]
+        if set_ids is not None:
+            if len(set_ids) == 0:
+                raise ValueError("set_ids must be None or a non-empty list of group_ids")
+            known = set(self._products["group_id"].astype(int).unique().tolist())
+            unknown = [int(s) for s in set_ids if int(s) not in known]
+            if unknown:
+                raise KeyError(f"Unknown set_id {unknown[0]}")
+            df = df[df["group_id"].isin([int(s) for s in set_ids])]
         if name:
             df = df[df["name"].str.contains(name, case=False, na=False, regex=False)]
         if collector_number:

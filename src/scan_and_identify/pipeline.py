@@ -10,10 +10,13 @@ from collector_vision import NeuralEmbedder, rotate_card_180
 from PIL import Image
 
 from scan_and_identify.back_rejector import BackRejector
+from scan_and_identify.phash import compute_name_phash, hamming_distance
 from scan_and_identify.set_index import SetIndex
 from scan_and_identify.tcgplayer.store import TCGStore
 
 Confidence = Literal["good", "fair", "poor"]
+
+PHASH_RERANK_WEIGHT = 0.15  # 15% pHash, 85% embedding (matches predecessor system)
 
 
 @dataclass(frozen=True)
@@ -52,7 +55,6 @@ class ConfidenceThresholds:
         return "fair"
 
 
-# Module-level default for code that doesn't want to thread an instance through.
 DEFAULT_THRESHOLDS = ConfidenceThresholds()
 
 
@@ -78,7 +80,31 @@ class Candidate:
 class IdentifyResult:
     is_card_back: bool
     candidates: list[Candidate]
-    confidence: Confidence | None = None  # None when candidates is empty
+    confidence: Confidence | None = None
+
+
+def _rerank_with_phash(
+    hits: list[tuple[float, int]],
+    query_phash: np.uint64,
+    index: SetIndex,
+) -> list[tuple[float, int]]:
+    """Reorder (score, pid) hits by 0.85*embedding + 0.15*(1 - hamming/64).
+
+    If `index` lacks a pHash for a candidate, the pHash term degrades to 0
+    for that one — embedding-only effectively wins for it. The other
+    candidates with hashes still get the rerank benefit.
+    """
+    reranked: list[tuple[float, int]] = []
+    for score, pid in hits:
+        ref_phash = index.name_phash_for(pid)
+        if ref_phash is None:
+            phash_score = 0.0
+        else:
+            phash_score = 1.0 - hamming_distance(query_phash, ref_phash) / 64.0
+        combined = (1.0 - PHASH_RERANK_WEIGHT) * score + PHASH_RERANK_WEIGHT * phash_score
+        reranked.append((combined, pid))
+    reranked.sort(key=lambda x: x[0], reverse=True)
+    return reranked
 
 
 class IdentifyPipeline:
@@ -103,7 +129,11 @@ class IdentifyPipeline:
         top_k: int,
         rotation_invariant: bool,
     ) -> IdentifyResult:
-        img = image.convert("RGB").resize((448, 448))
+        # Milo path is unchanged: letterbox to 448×448, embed at 0° (and
+        # optionally 180°), pick the better cosine. Orientation chosen here
+        # is the master signal — the pHash step below mirrors it.
+        rgb = image.convert("RGB")
+        img = rgb.resize((448, 448))
 
         if rotation_invariant:
             rotated = rotate_card_180(img)
@@ -112,18 +142,26 @@ class IdentifyPipeline:
             hits_a = self._index.search(emb_a, set_id=set_id, top_k=top_k)
             hits_b = self._index.search(emb_b, set_id=set_id, top_k=top_k)
             if hits_b and (not hits_a or hits_b[0][0] > hits_a[0][0]):
-                emb, hits = emb_b, hits_b
+                emb, hits, used_180 = emb_b, hits_b, True
             else:
-                emb, hits = emb_a, hits_a
+                emb, hits, used_180 = emb_a, hits_a, False
         else:
             emb = np.asarray(self._embedder.embed(img), dtype=np.float32)
             hits = self._index.search(emb, set_id=set_id, top_k=top_k)
+            used_180 = False
 
         top_score = hits[0][0] if hits else 0.0
         if self._back.is_back(embedding=emb, top_catalog_score=top_score):
             return IdentifyResult(is_card_back=True, candidates=[], confidence=None)
 
-        candidates = []
+        # pHash rerank: use the same orientation Milo picked. Skip entirely if
+        # the index carries no pHashes (e.g. legacy synthetic catalogs in tests).
+        if hits and self._index.name_phash_for(int(hits[0][1])) is not None:
+            phash_input = rgb.transpose(Image.ROTATE_180) if used_180 else rgb
+            query_phash = compute_name_phash(phash_input)
+            hits = _rerank_with_phash(hits, query_phash, self._index)
+
+        candidates: list[Candidate] = []
         for score, product_id in hits:
             p = self._store.product(product_id)
             if p is None:

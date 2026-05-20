@@ -44,3 +44,68 @@ def test_pipeline_rotation_invariant_does_not_break(synthetic_catalog, synthetic
     img = Image.new("RGB", (448, 448), (200, 50, 50))
     result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=True)
     assert len(result.candidates) == 3
+
+
+def test_pipeline_reranks_by_combined_score(synthetic_catalog, synthetic_parquets):
+    """When two candidates are close on embedding but one is much closer on pHash,
+    the pHash-similar one wins after rerank.
+    """
+    import numpy as np
+
+    catalog = Catalog.load(synthetic_catalog)
+    store = TCGStore.load(synthetic_parquets)
+    embedder = NeuralEmbedder()
+
+    img = Image.new("RGB", (448, 448), (200, 50, 50))
+    from scan_and_identify.phash import compute_name_phash
+
+    matching_phash = compute_name_phash(img)
+    pids = [int(cid) for cid in catalog.card_ids]
+
+    rng = np.random.default_rng(0)
+    phashes = np.array(
+        [np.uint64(rng.integers(0, 2**63, dtype=np.uint64)) for _ in pids],
+        dtype=np.uint64,
+    )
+
+    # Probe embedding-only ordering to identify top-1/top-2 before rerank.
+    pre_index = SetIndex.build(catalog, store, name_phashes=None)
+    arr = np.asarray(embedder.embed(img.convert("RGB").resize((448, 448))), dtype=np.float32)
+    pre_hits = pre_index.search(arr, set_id=None, top_k=3)
+    top1_pid = pre_hits[0][1]
+    top2_pid = pre_hits[1][1]
+
+    # Assign hashes so top1 is maximally distant from query, top2 matches perfectly.
+    idx_top1 = pids.index(top1_pid)
+    idx_top2 = pids.index(top2_pid)
+    phashes[idx_top1] = np.uint64(~int(matching_phash) & 0xFFFFFFFFFFFFFFFF)
+    phashes[idx_top2] = matching_phash
+
+    index = SetIndex.build(catalog, store, name_phashes=phashes)
+    pipeline = IdentifyPipeline(
+        embedder=embedder,
+        index=index,
+        store=store,
+        back_rejector=BackRejector(back_embedding=None),
+    )
+    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=False)
+    assert result.candidates[0].product_id == top2_pid
+
+
+def test_pipeline_skips_rerank_when_phashes_missing(synthetic_catalog, synthetic_parquets):
+    """If the SetIndex has no pHashes, the pipeline returns embedding-only ranking unchanged."""
+    catalog = Catalog.load(synthetic_catalog)
+    store = TCGStore.load(synthetic_parquets)
+    embedder = NeuralEmbedder()
+    index = SetIndex.build(catalog, store, name_phashes=None)
+    pipeline = IdentifyPipeline(
+        embedder=embedder,
+        index=index,
+        store=store,
+        back_rejector=BackRejector(back_embedding=None),
+    )
+    img = Image.new("RGB", (448, 448), (200, 50, 50))
+    result = pipeline.identify(img, set_id=None, top_k=3, rotation_invariant=False)
+    assert len(result.candidates) == 3
+    scores = [c.score for c in result.candidates]
+    assert scores == sorted(scores, reverse=True)

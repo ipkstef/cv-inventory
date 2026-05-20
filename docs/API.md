@@ -202,7 +202,8 @@ Identify a single scan image.
       "group_id": 24234,
       "collector_number": "146",
       "rarity": "Common",
-      "image_url": "https://tcgplayer-cdn.tcgplayer.com/product/591234_200w.jpg"
+      "image_url": "https://tcgplayer-cdn.tcgplayer.com/product/591234_200w.jpg",
+      "printings": ["Normal", "Foil"]
     },
     ...
   ]
@@ -214,6 +215,7 @@ Identify a single scan image.
 | `is_card_back` | bool | True when the card-back rejector fired. `candidates` is `[]` and `confidence` is `null` in this case. (Currently disabled until back-rejector PNG is bundled — always false today.) |
 | `confidence` | `"good" \| "fair" \| "poor" \| null` | Tier of the top-1 candidate. Null when `candidates` is empty. See "Confidence" below. |
 | `candidates` | array | Top-K best matches, sorted by score descending. |
+| `candidates[*].printings` | list[str] | Subset of `["Normal", "Foil"]` — the SKU printings this `product_id` is sold in. Use this to filter candidates by foil-mode without parsing card names. Special foil variants (Galaxy Foil, Etched Foil, etc.) are encoded as **separate `product_id`s** by TCGplayer, with their parenthesized suffix in the product `name` — `printings` for those will typically be `["Foil"]`. |
 
 **Errors:**
 
@@ -291,7 +293,8 @@ UI when the top-K from `/identify` doesn't contain the right card.
       "group_id": 24234,
       "collector_number": "146",
       "rarity": "Common",
-      "image_url": "https://tcgplayer-cdn.tcgplayer.com/product/591234_200w.jpg"
+      "image_url": "https://tcgplayer-cdn.tcgplayer.com/product/591234_200w.jpg",
+      "printings": ["Normal", "Foil"]
     },
     ...
   ]
@@ -532,6 +535,11 @@ the `Change log` section at the bottom of this file.
 
 ## Change log
 
+- 2026-05-20 — `/identify`, `/identify-batch`, and `/search`: each candidate /
+  product now includes `printings: list[str]` (subset of
+  `["Normal", "Foil"]`) sourced from the SKU table. Server also emits a
+  one-line `identify scan_id=... url=... top_pid=... top_score=... gap=... conf=...`
+  telemetry record per identify, greppable in `docker logs`.
 - 2026-05-20 — `/identify`, `/identify-batch`, and `/search`: replaced `set_id`
   with `set_ids: list[int] | null` (POST body) / repeated `?set_ids=` query
   param (GET). Single-set lock is `[24234]`; union lock is `[24234, 23445]`.

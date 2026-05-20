@@ -92,6 +92,50 @@ def test_identify_rejects_empty_set_ids(synthetic_catalog, synthetic_parquets):
     assert r.status_code == 422  # Pydantic validation error
 
 
+def test_identify_response_includes_printings_field(synthetic_catalog, synthetic_parquets):
+    state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
+    client = TestClient(create_app(state))
+    url = "https://example.com/scan.png"
+    with respx.mock(assert_all_called=True) as m:
+        m.get(url).mock(return_value=Response(200, content=_png_bytes()))
+        r = client.post(
+            "/identify",
+            json={"image_url": url, "top_k": 1, "rotation_invariant": False},
+            headers={"Authorization": "Bearer k"},
+        )
+    assert r.status_code == 200
+    candidate = r.json()["candidates"][0]
+    assert "printings" in candidate
+    # Synthetic fixture: every product has both Normal and Foil SKUs.
+    assert candidate["printings"] == ["Normal", "Foil"]
+
+
+def test_identify_emits_telemetry_log_line(synthetic_catalog, synthetic_parquets, caplog):
+    import logging
+
+    state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
+    client = TestClient(create_app(state))
+    url = "https://example.com/scan.png"
+    with respx.mock(assert_all_called=True) as m:
+        m.get(url).mock(return_value=Response(200, content=_png_bytes()))
+        with caplog.at_level(logging.INFO, logger="scan_and_identify.identify"):
+            r = client.post(
+                "/identify",
+                json={"image_url": url, "top_k": 3, "rotation_invariant": False},
+                headers={"Authorization": "Bearer k"},
+            )
+    assert r.status_code == 200
+    msgs = [rec.getMessage() for rec in caplog.records if rec.name == "scan_and_identify.identify"]
+    assert len(msgs) == 1
+    line = msgs[0]
+    assert "identify" in line
+    assert "top_pid=" in line
+    assert "top_score=" in line
+    assert "gap=" in line
+    assert "conf=" in line
+    assert "printings=" in line
+
+
 def test_identify_image_fetch_404(synthetic_catalog, synthetic_parquets):
     state = AppState.bootstrap_for_tests("k", synthetic_catalog, synthetic_parquets)
     client = TestClient(create_app(state))

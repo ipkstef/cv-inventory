@@ -74,6 +74,7 @@ class Candidate:
     collector_number: str | None
     rarity: str | None
     image_url: str
+    printings: list[str]
 
 
 @dataclass
@@ -177,6 +178,7 @@ class IdentifyPipeline:
                     collector_number=p["collector_number"],
                     rarity=p["rarity"],
                     image_url=p["image_url"] or "",
+                    printings=self._store.printings_for_product(product_id),
                 )
             )
         confidence: Confidence | None = None

@@ -47,3 +47,14 @@ def test_store_resolve_sku_returns_none_when_missing(synthetic_parquets):
     assert (
         store.resolve_sku(1001, printing="Normal", condition="Damaged", language="English") is None
     )
+
+
+def test_printings_for_product_returns_normal_then_foil(synthetic_parquets):
+    store = TCGStore.load(synthetic_parquets)
+    # All synthetic products have both printing_id=1 (Normal) and 2 (Foil) SKUs.
+    assert store.printings_for_product(1001) == ["Normal", "Foil"]
+
+
+def test_printings_for_product_empty_for_unknown(synthetic_parquets):
+    store = TCGStore.load(synthetic_parquets)
+    assert store.printings_for_product(7777777) == []

@@ -40,6 +40,7 @@ class CandidateOut(BaseModel):
     collector_number: str | None
     rarity: str | None
     image_url: str
+    printings: list[str]  # Subset of {"Normal", "Foil"} — which SKUs this product has.
 
 
 class IdentifyResponse(BaseModel):
@@ -91,6 +92,7 @@ class ProductMatch(BaseModel):
     collector_number: str | None
     rarity: str | None
     image_url: str
+    printings: list[str]
 
 
 class SearchResponse(BaseModel):

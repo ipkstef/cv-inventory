@@ -110,6 +110,14 @@ class TCGStore:
         rows = self._skus_by_product.get(int(product_id), [])
         return [self._sku_to_dict(r) for r in rows]
 
+    def printings_for_product(self, product_id: int) -> list[str]:
+        """Return the unique printing names this product is sold in, sorted by
+        ``printing_id`` so Normal comes before Foil. Empty list if no SKUs
+        exist (sealed product, dropped row, etc)."""
+        rows = self._skus_by_product.get(int(product_id), [])
+        ids = sorted({int(r.printing_id) for r in rows})
+        return [self._printings[pid] for pid in ids if pid in self._printings]
+
     def search_products(
         self,
         name: str | None = None,

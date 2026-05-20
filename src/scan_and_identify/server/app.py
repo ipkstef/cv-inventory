@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from scan_and_identify.image_fetch import FetchError, fetch_image
+from scan_and_identify.pipeline import IdentifyResult
 from scan_and_identify.server.auth import require_bearer
 from scan_and_identify.server.schemas import (
     ExportRequest,
@@ -19,9 +22,56 @@ from scan_and_identify.server.schemas import (
 from scan_and_identify.server.state import AppState
 from scan_and_identify.tcgplayer.seller_csv import MergePriceConflict, build_seller_csv
 
+log = logging.getLogger("scan_and_identify.identify")
+
 
 def _candidate_dicts(candidates) -> list[dict]:
     return [c.__dict__ for c in candidates]
+
+
+def _log_identify(
+    *, image_url: str, scan_id: str | None, set_ids: list[int] | None, result: IdentifyResult
+) -> None:
+    """One grep-friendly line per identify call.
+
+    Format (space-separated key=value), so ``docker logs | awk '{...}'``
+    can tally tiers / pids without parsing JSON::
+
+        identify scan_id=quill-42 url=https://... card_back=False
+                 top_pid=218276 top_score=0.717 gap=0.347 conf=good
+                 n_candidates=3 set_ids=[2655] printings=[Normal,Foil]
+
+    Empty / None fields show as ``-`` so the column count stays stable.
+    """
+    if result.candidates:
+        top = result.candidates[0]
+        top_pid = top.product_id
+        top_score = f"{top.score:.4f}"
+        gap = (
+            top.score - result.candidates[1].score if len(result.candidates) > 1 else top.score
+        )
+        gap_str = f"{gap:.4f}"
+        printings = "[" + ",".join(top.printings) + "]"
+    else:
+        top_pid = "-"
+        top_score = "-"
+        gap_str = "-"
+        printings = "-"
+    set_ids_str = "[" + ",".join(str(s) for s in set_ids) + "]" if set_ids else "-"
+    log.info(
+        "identify scan_id=%s url=%s card_back=%s top_pid=%s top_score=%s gap=%s conf=%s "
+        "n_candidates=%d set_ids=%s printings=%s",
+        scan_id or "-",
+        image_url,
+        result.is_card_back,
+        top_pid,
+        top_score,
+        gap_str,
+        result.confidence or "-",
+        len(result.candidates),
+        set_ids_str,
+        printings,
+    )
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -91,6 +141,7 @@ def create_app(state: AppState) -> FastAPI:
                     "collector_number": p["collector_number"],
                     "rarity": p["rarity"],
                     "image_url": p["image_url"] or "",
+                    "printings": state.store.printings_for_product(p["product_id"]),
                 }
             )
         return {"results": out}
@@ -110,6 +161,7 @@ def create_app(state: AppState) -> FastAPI:
             )
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
+        _log_identify(image_url=req.image_url, scan_id=None, set_ids=req.set_ids, result=result)
         return {
             "is_card_back": result.is_card_back,
             "confidence": result.confidence,
@@ -146,6 +198,9 @@ def create_app(state: AppState) -> FastAPI:
                     "candidates": [],
                     "error": str(e),
                 }
+            _log_identify(
+                image_url=item.image_url, scan_id=item.id, set_ids=req.set_ids, result=result
+            )
             return {
                 "id": item.id,
                 "is_card_back": result.is_card_back,

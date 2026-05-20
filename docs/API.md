@@ -473,7 +473,12 @@ rows.
 
 The `confidence` field on identify responses is computed from two signals:
 
-- **`score`**: cosine similarity of the top-1 candidate. Always in `[0, 1]`.
+- **`score`**: combined embedding + pHash similarity of the top-1 candidate,
+  computed as `0.85 · cosine + 0.15 · (1 − hamming/64)` where the pHash
+  term compares the input card's name-region perceptual hash against the
+  catalog's pre-computed reference hash. Always in `[0, 1]`. Confidence
+  tiers (`good`/`fair`/`poor`) use this combined score, so existing tier
+  semantics are preserved end-to-end.
 - **`gap`**: `top_1.score - top_2.score`. Larger gap = more confident.
 
 Tiers (default thresholds, calibrated against the 172-scan reference eval):
@@ -526,6 +531,9 @@ the `Change log` section at the bottom of this file.
 
 ## Change log
 
+- 2026-05-19 — Added pHash-on-name rerank atop Milo top-K. `score` is now
+  the combined `0.85 · cosine + 0.15 · pHash similarity`. Catalog format
+  bumped to `milo1+phash1`; legacy `milo1` catalogs are rejected at boot.
 - 2026-05-18 — Added `/search`, `confidence` field, `merge_duplicates`,
   `price_formula`. Documented website-owned responsibilities.
 - 2026-05-16 — Initial API design (see `docs/superpowers/specs/` in the

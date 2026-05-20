@@ -87,7 +87,7 @@ no AWS CLI, no host toolchain. It:
 1. Pulls the latest `products.parquet` from R2.
 2. Downloads any new card images (existing cache reused — typical month is a
    few hundred new products on top of ~110k cached).
-3. Re-embeds the full catalog (~75 min CPU; the slow step).
+3. Re-embeds the full catalog **and computes name-region pHashes** (~75 min CPU; the slow step).
 4. Writes the result to `catalogs/catalog.npz` and bakes a `built_at`
    timestamp into the NPZ.
 
@@ -114,6 +114,15 @@ docker compose pull && docker compose up -d
 ```
 
 Container restarts with the new image and the new catalog. ~10s downtime.
+
+### Catalog versioning
+
+The NPZ embeds an `algo_key` field. Current servers require `milo1+phash1`
+(Milo embedder + 64-bit name-region pHash). Older `milo1` catalogs are
+**rejected at boot** with a clear `ValueError` — there is no silent
+fallback to embedding-only. If you roll back the server image to a
+pre-pHash version, you must also roll the catalog back to a `milo1`-tagged
+NPZ. The image and the catalog move together.
 
 ### Performance tuning
 
@@ -238,6 +247,7 @@ No graceful rotation supported in v1 (single shared key). If you need zero-downt
 | Slow `/identify` (>2s) | Image fetch from consumer storage is slow | Investigate storage latency; pre-warm with `--rotation_invariant false` for testing |
 | 429/503 from TCGplayer CDN during catalog build | Rare; we observed zero in production builds | Drop `--rate` and `--concurrency` in `download-images`; back-rejector pauses 5s automatically |
 | OOM during boot | Insufficient container memory | Bump RAM limit to 2 GB |
+| Container exits with `ValueError: ... requires 'milo1+phash1'` | Loaded catalog was built before pHash rerank was added | Rebuild with `scripts/refresh-catalog.sh` and redeploy; intentional — no silent fallback |
 
 ---
 

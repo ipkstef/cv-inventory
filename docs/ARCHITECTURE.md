@@ -108,8 +108,9 @@ After boot, every request is hot — no lazy loads, no warm-up.
 │         keep the orientation with stronger top-1                 │
 │    c. back_rejector.is_back(emb, top_score)?                    │
 │         → is_card_back=true, candidates=[]                       │
-│    d. for each hit: store.product(pid) → enrich with metadata   │
-│    e. confidence = thresholds.classify(top_score, gap_to_next)  │
+│    d. pHash rerank (see below): combined = 0.85·cosine + 0.15·pHash │
+│    e. for each hit: store.product(pid) → enrich with metadata   │
+│    f. confidence = thresholds.classify(top_score, gap_to_next)  │
 │                                                                 │
 │    Returns IdentifyResult(is_card_back, candidates, confidence) │
 └──────────────────────────────┬──────────────────────────────────┘
@@ -119,6 +120,32 @@ After boot, every request is hot — no lazy loads, no warm-up.
 │ 4. Route serializes dataclass → JSON, returns 200               │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Step 3d: pHash rerank
+
+After Milo returns its top-K candidates (with rotation-invariant orientation
+selected), the pipeline computes a 64-bit DCT perceptual hash on the **name
+region** of the input image — the top ~15% of the card with horizontal
+margins, on a 363×504 canonical resize. The pHash uses the same orientation
+Milo picked (input is rotated 180° if Milo's 180° embedding scored higher).
+
+Each top-K candidate's pre-computed catalog pHash (loaded from the NPZ at
+boot, held in `SetIndex._name_phash_by_pid`) is XOR'd against the query
+pHash; Hamming distance is converted to a similarity score in [0, 1]. Final
+ranking:
+
+```
+combined_score = 0.85 * cosine_similarity + 0.15 * (1 - hamming / 64)
+```
+
+This rescues "right card, wrong frame" misses — alt-art and retro-frame
+printings that Milo confuses because the artwork differs, but whose name
+bars look identical to the standard printing.
+
+The Milo embedding path itself is **unchanged**: same 448×448 letterbox,
+same ONNX inference, same orientation selection. The pHash compute is
+purely additive (~1 ms per identify), runs on a separate preprocessing
+pipeline (canonical 363×504 resize), and does not influence Milo's output.
 
 **Total latency:** ~600ms with `rotation_invariant=true`, ~300ms without.
 
@@ -167,7 +194,8 @@ Pure dict lookups and string formatting. Sub-millisecond per row. A 1000-row exp
 | `src/scan_and_identify/tcgplayer/seller_csv.py` | TCGplayer seller-template CSV + merge + formula |
 | `src/scan_and_identify/image_fetch.py` | Async HTTP → PIL Image |
 | `src/scan_and_identify/back_rejector.py` | Cosine gate vs canonical card-back |
-| `src/scan_and_identify/set_index.py` | Pre-sliced sub-catalogs per group_id |
+| `src/scan_and_identify/phash.py` | Name-region crop + 64-bit DCT pHash (rerank primitives) |
+| `src/scan_and_identify/set_index.py` | Pre-sliced sub-catalogs per group_id + pHash lookup |
 | `src/scan_and_identify/pipeline.py` | Compose embedder + index + store + back-rejector |
 | `src/scan_and_identify/catalog_build.py` | Build/download CLI logic |
 | `src/scan_and_identify/cli.py` | argparse entry point (`scan-and-identify`) |

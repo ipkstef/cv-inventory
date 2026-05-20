@@ -2,26 +2,48 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 from collector_vision import Catalog, NeuralEmbedder
 
 from scan_and_identify.back_rejector import BackRejector
-from scan_and_identify.catalog_build import read_catalog_built_at
+from scan_and_identify.catalog_build import read_catalog_built_at, read_catalog_name_phashes
 from scan_and_identify.config import Config
 from scan_and_identify.pipeline import ConfidenceThresholds, IdentifyPipeline
 from scan_and_identify.set_index import SetIndex
 from scan_and_identify.tcgplayer.r2_sync import sync_parquets
 from scan_and_identify.tcgplayer.store import TCGStore
 
+REQUIRED_ALGO_KEY = "milo1+phash1"
+
 
 def _derive_version(built_at: str | None, fallback_stem: str) -> str:
     """Compact human-readable version: YYYY-MM from built_at, or filename stem."""
     if built_at and len(built_at) >= 7:
-        return built_at[:7]  # "2026-05-19T..." -> "2026-05"
+        return built_at[:7]
     return fallback_stem
+
+
+def _assert_algo_key_supported(catalog_path: Path) -> None:
+    """Read the NPZ's embedder_spec and refuse anything other than milo1+phash1.
+
+    We intentionally don't fall back to embedding-only on legacy catalogs:
+    silent degradation is the path to confusing prod incidents. Rebuild and
+    redeploy is the answer.
+    """
+    data = np.load(catalog_path, allow_pickle=False)
+    spec = json.loads(str(data["embedder_spec"]))
+    algo_key = spec.get("algo_key")
+    if algo_key != REQUIRED_ALGO_KEY:
+        raise ValueError(
+            f"Catalog at {catalog_path} has algo_key={algo_key!r} but this server "
+            f"requires {REQUIRED_ALGO_KEY!r}. Rebuild the catalog with the current "
+            f"scan-and-identify image (scripts/refresh-catalog.sh) and redeploy."
+        )
 
 
 @dataclass
@@ -41,10 +63,12 @@ class AppState:
         sync_parquets(config.r2, config.tcgplayer_category, parquet_cache)
         parquet_dir = parquet_cache / str(config.tcgplayer_category)
         store = TCGStore.load(parquet_dir)
+        _assert_algo_key_supported(config.catalog_path)
         catalog = Catalog.load(config.catalog_path)
         built_at = read_catalog_built_at(config.catalog_path)
+        name_phashes = read_catalog_name_phashes(config.catalog_path)
         embedder = NeuralEmbedder()
-        index = SetIndex.build(catalog, store)
+        index = SetIndex.build(catalog, store, name_phashes=name_phashes)
         back = BackRejector.load(back_image, embedder)
         pipeline = IdentifyPipeline(
             embedder=embedder,
@@ -69,10 +93,12 @@ class AppState:
     def bootstrap_for_tests(cls, api_key: str, catalog_path: Path, parquet_dir: Path) -> AppState:
         """Same as bootstrap but skips R2 sync — used in tests with synthetic fixtures."""
         store = TCGStore.load(parquet_dir)
+        _assert_algo_key_supported(catalog_path)
         catalog = Catalog.load(catalog_path)
         built_at = read_catalog_built_at(catalog_path)
+        name_phashes = read_catalog_name_phashes(catalog_path)
         embedder = NeuralEmbedder()
-        index = SetIndex.build(catalog, store)
+        index = SetIndex.build(catalog, store, name_phashes=name_phashes)
         back = BackRejector.load(None, embedder)
         pipeline = IdentifyPipeline(embedder=embedder, index=index, store=store, back_rejector=back)
         return cls(

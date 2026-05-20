@@ -10,18 +10,20 @@ import pandas as pd
 
 
 def write_synthetic_catalog(path: Path, product_ids: list[int]) -> None:
-    """Write a CollectorVision-format NPZ with random unit vectors keyed by product_id (as strings)."""
+    """Write a CollectorVision-format NPZ with random unit vectors + random pHashes."""
     rng = np.random.default_rng(42)
     n = len(product_ids)
     embeddings = rng.standard_normal((n, 128)).astype(np.float32)
     embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+    name_phashes = rng.integers(0, 2**63, size=n, dtype=np.uint64)
     np.savez_compressed(
         path,
         embeddings=embeddings,
         card_ids=np.array([str(pid) for pid in product_ids], dtype="<U36"),
         source="tcgplayer",
-        embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1"}),
+        embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1+phash1"}),
         built_at="2026-05-19T12:34:56Z",
+        name_phashes=name_phashes,
     )
 
 

@@ -218,3 +218,66 @@ def test_read_catalog_built_at_returns_none_for_old_npz(tmp_path):
         embedder_spec=json.dumps({"kind": "neural", "algo_key": "milo1"}),
     )
     assert read_catalog_built_at(out) is None
+
+
+# --- name_phashes ----------------------------------------------------------
+
+
+def test_write_catalog_npz_writes_name_phashes(tmp_path):
+    import json
+
+    out = tmp_path / "catalog.npz"
+    embeddings = np.random.default_rng(0).standard_normal((2, 128)).astype(np.float32)
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+    phashes = np.array([0xDEADBEEF, 0xCAFEF00D], dtype=np.uint64)
+    write_catalog_npz(out, ["1", "2"], embeddings, name_phashes=phashes)
+    data = np.load(out, allow_pickle=False)
+    assert data["name_phashes"].tolist() == [0xDEADBEEF, 0xCAFEF00D]
+    assert data["name_phashes"].dtype == np.uint64
+    assert json.loads(str(data["embedder_spec"]))["algo_key"] == "milo1+phash1"
+
+
+def test_write_catalog_npz_without_phashes_keeps_old_algo_key(tmp_path):
+    import json
+
+    out = tmp_path / "catalog.npz"
+    embeddings = np.random.default_rng(0).standard_normal((1, 128)).astype(np.float32)
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+    write_catalog_npz(out, ["1"], embeddings)
+    data = np.load(out, allow_pickle=False)
+    assert "name_phashes" not in data.files
+    assert json.loads(str(data["embedder_spec"]))["algo_key"] == "milo1"
+
+
+def test_write_catalog_npz_rejects_mismatched_phash_length(tmp_path):
+    out = tmp_path / "catalog.npz"
+    embeddings = np.zeros((2, 128), dtype=np.float32)
+    phashes = np.array([0x1, 0x2, 0x3], dtype=np.uint64)
+    try:
+        write_catalog_npz(out, ["1", "2"], embeddings, name_phashes=phashes)
+    except ValueError as e:
+        assert "doesn't match" in str(e)
+    else:
+        raise AssertionError("expected ValueError for length mismatch")
+
+
+def test_read_catalog_name_phashes_returns_none_when_absent(tmp_path):
+    from scan_and_identify.catalog_build import read_catalog_name_phashes
+
+    out = tmp_path / "catalog.npz"
+    embeddings = np.zeros((1, 128), dtype=np.float32)
+    write_catalog_npz(out, ["1"], embeddings)
+    assert read_catalog_name_phashes(out) is None
+
+
+def test_read_catalog_name_phashes_roundtrip(tmp_path):
+    from scan_and_identify.catalog_build import read_catalog_name_phashes
+
+    out = tmp_path / "catalog.npz"
+    embeddings = np.zeros((2, 128), dtype=np.float32)
+    phashes = np.array([0xAAAA, 0xBBBB], dtype=np.uint64)
+    write_catalog_npz(out, ["1", "2"], embeddings, name_phashes=phashes)
+    loaded = read_catalog_name_phashes(out)
+    assert loaded is not None
+    assert loaded.tolist() == [0xAAAA, 0xBBBB]
+    assert loaded.dtype == np.uint64

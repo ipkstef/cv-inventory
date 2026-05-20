@@ -58,7 +58,9 @@ def test_build_catalog_filters_sealed_and_writes_npz(tmp_path):
     assert sorted(data["card_ids"].tolist()) == ["1001", "1002"]
     spec = json.loads(str(data["embedder_spec"]))
     assert spec["kind"] == "neural"
-    assert spec["algo_key"] == "milo1"
+    assert spec["algo_key"] == "milo1+phash1"
+    assert data["name_phashes"].shape == (2,)
+    assert data["name_phashes"].dtype == np.uint64
 
 
 def test_build_catalog_skips_already_cached(tmp_path):

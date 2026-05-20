@@ -37,6 +37,8 @@ import pandas as pd
 from collector_vision import NeuralEmbedder
 from PIL import Image
 
+from scan_and_identify.phash import compute_name_phash
+
 log = logging.getLogger(__name__)
 
 USER_AGENT = "scan-and-identify/0.1 (catalog-build; +https://github.com/ipkstef/scan-and-identify)"
@@ -188,30 +190,44 @@ def write_catalog_npz(
     embeddings: np.ndarray,
     *,
     source: str = "tcgplayer",
-    algo_key: str = "milo1",
+    algo_key: str | None = None,
     built_at: str | None = None,
+    name_phashes: np.ndarray | None = None,
 ) -> None:
     """Write an NPZ in the format CollectorVision's :class:`Catalog` reads.
 
     ``embeddings`` should already be L2-normalised (use :func:`embed_one`).
     ``card_ids`` should be parallel to embeddings — same length, same order.
-    ``built_at`` is an ISO-8601 UTC timestamp; defaults to "now". It's
-    embedded in the NPZ so the server can surface it on /health without
-    relying on filename parsing.
+    ``built_at`` is an ISO-8601 UTC timestamp; defaults to "now".
+    ``name_phashes``, if provided, is a parallel uint64 array of 64-bit
+    perceptual hashes of the card name region. When phashes are present the
+    default ``algo_key`` is bumped to ``"milo1+phash1"`` to fence off catalogs
+    that lack the new field — pass an explicit ``algo_key`` to override.
     """
     from datetime import datetime
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if built_at is None:
         built_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    np.savez_compressed(
-        path,
-        embeddings=embeddings,
-        card_ids=np.array(card_ids, dtype="<U36"),
-        source=source,
-        embedder_spec=json.dumps({"kind": "neural", "algo_key": algo_key}),
-        built_at=built_at,
-    )
+    if algo_key is None:
+        algo_key = "milo1+phash1" if name_phashes is not None else "milo1"
+
+    arrays: dict[str, np.ndarray] = {
+        "embeddings": embeddings,
+        "card_ids": np.array(card_ids, dtype="<U36"),
+        "source": np.asarray(source),
+        "embedder_spec": np.asarray(json.dumps({"kind": "neural", "algo_key": algo_key})),
+        "built_at": np.asarray(built_at),
+    }
+    if name_phashes is not None:
+        if name_phashes.dtype != np.uint64:
+            name_phashes = name_phashes.astype(np.uint64)
+        if name_phashes.shape != (len(card_ids),):
+            raise ValueError(
+                f"name_phashes length {name_phashes.shape} doesn't match card_ids ({len(card_ids)})"
+            )
+        arrays["name_phashes"] = name_phashes
+    np.savez_compressed(path, **arrays)
 
 
 def read_catalog_built_at(path: Path) -> str | None:
@@ -224,6 +240,20 @@ def read_catalog_built_at(path: Path) -> str | None:
     if "built_at" in data.files:
         return str(data["built_at"])
     return None
+
+
+def read_catalog_name_phashes(path: Path) -> np.ndarray | None:
+    """Return the ``name_phashes`` uint64 array, or None if the NPZ lacks it.
+
+    Old NPZs from before pHash rerank was added return None — callers should
+    treat that as "fall back to embedding-only" and/or hard-fail at boot
+    depending on policy.
+    """
+    data = np.load(path, allow_pickle=False)
+    if "name_phashes" not in data.files:
+        return None
+    arr = data["name_phashes"]
+    return arr.astype(np.uint64) if arr.dtype != np.uint64 else arr
 
 
 # =============================================================================
@@ -374,6 +404,7 @@ def build_catalog(
 
     embedder = NeuralEmbedder()
     embeddings: list[np.ndarray] = []
+    name_phashes: list[np.uint64] = []
     card_ids: list[str] = []
 
     start = time.monotonic()
@@ -397,22 +428,33 @@ def build_catalog(
             )
             in_memory.update(fetched)
 
-        # Phase 3: preprocess + embed in batch order.
+        # Phase 3: preprocess + embed + pHash in batch order. pHash uses a
+        # separate preprocessing path (canonical resize + name-region crop) —
+        # see scan_and_identify.phash. We feed it the raw decoded image, not
+        # Milo's letterboxed 448×448, so the two pipelines stay independent.
         for pid, _ in batch:
             content = in_memory.get(pid)
             if content is None:
-                continue  # download failed for this product; skip silently
+                continue
             try:
                 img = preprocess(content)
+                raw = Image.open(io.BytesIO(content)).convert("RGB")
+                phash = compute_name_phash(raw)
             except Exception as e:
                 log.warning("Bad image for product %s: %s", pid, e)
                 continue
             embeddings.append(embed_one(embedder, img))
+            name_phashes.append(phash)
             card_ids.append(str(pid))
 
         _log_progress(batch_start + len(batch), total, start)
 
-    write_catalog_npz(out_path, card_ids, np.stack(embeddings, axis=0))
+    write_catalog_npz(
+        out_path,
+        card_ids,
+        np.stack(embeddings, axis=0),
+        name_phashes=np.array(name_phashes, dtype=np.uint64),
+    )
     log.info("Wrote %d embeddings to %s", len(card_ids), out_path)
 
 

@@ -159,8 +159,8 @@ sets first.
 }
 ```
 
-Use to populate a set picker; pass `group_id` as `set_id` on `/identify`
-to hard-lock identification to a single set.
+Use to populate a set picker; pass `group_id`s as `set_ids` on `/identify`
+to hard-lock identification to one or more sets.
 
 ---
 
@@ -173,7 +173,7 @@ Identify a single scan image.
 ```json
 {
   "image_url": "https://your-storage/scans/scan42.jpg",
-  "set_id": 24234,
+  "set_ids": [24234],
   "top_k": 5,
   "rotation_invariant": true
 }
@@ -182,7 +182,7 @@ Identify a single scan image.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `image_url` | string | required | Must be HTTP(S), reachable from the container, return an image (any size; resized server-side). |
-| `set_id` | int \| null | null | If set, hard-filters candidates to that TCGplayer set. Returns `404` if unknown. |
+| `set_ids` | list[int] \| null | null | If set, hard-filters candidates to the **union** of these TCGplayer sets. Use a single-element list `[24234]` to lock to one set; multiple ids `[24234, 23445]` for batches you know come from one of N known sets. Returns `404` if any id in the list is unknown (strict — won't silently drop unknowns). Empty list `[]` is a 422 validation error. |
 | `top_k` | int | 5 | 1-20. |
 | `rotation_invariant` | bool | true | If true, embeds the image and its 180° rotation, keeps the orientation with the stronger top match. Adds ~50% latency. ADF scans benefit; pre-oriented uploads don't. |
 
@@ -218,7 +218,8 @@ Identify a single scan image.
 **Errors:**
 
 - `400` `Could not fetch image: ...` — image_url returned non-200 or non-image content.
-- `404` `Unknown set_id N` — `set_id` doesn't exist in the catalog.
+- `404` `Unknown set_id N` — at least one id in `set_ids` doesn't exist in the catalog.
+- `422` validation error — `set_ids` was an empty list (use `null` for "no lock").
 
 ---
 
@@ -234,7 +235,7 @@ Identify N images in parallel.
     {"id": "scan42", "image_url": "..."},
     {"id": "scan43", "image_url": "..."}
   ],
-  "set_id": 24234,
+  "set_ids": [24234],
   "top_k": 5,
   "rotation_invariant": true
 }
@@ -531,6 +532,10 @@ the `Change log` section at the bottom of this file.
 
 ## Change log
 
+- 2026-05-20 — `/identify` and `/identify-batch`: replaced `set_id: int | null`
+  with `set_ids: list[int] | null`. Single-set lock is `[24234]`; union lock is
+  `[24234, 23445]`. Empty list rejected with 422; any unknown id in the list
+  rejects the whole request with 404 (strict).
 - 2026-05-19 — Added pHash-on-name rerank atop Milo top-K. `score` is now
   the combined `0.85 · cosine + 0.15 · pHash similarity`. Catalog format
   bumped to `milo1+phash1`; legacy `milo1` catalogs are rejected at boot.

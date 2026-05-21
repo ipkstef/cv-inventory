@@ -535,6 +535,10 @@ the `Change log` section at the bottom of this file.
 
 ## Change log
 
+- 2026-05-21 — Identify path now offloads the sync embed+rerank work to a
+  worker thread via `asyncio.to_thread`. Wall-clock latency on `POST
+  /identify-batch` should drop ~4-6× on multi-core hosts; per-scan accuracy
+  and contract unchanged.
 - 2026-05-20 — `/identify`, `/identify-batch`, and `/search`: each candidate /
   product now includes `printings: list[str]` (subset of
   `["Normal", "Foil"]`) sourced from the SKU table. Server also emits a

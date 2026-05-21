@@ -159,7 +159,14 @@ Breakdown of the rotation-invariant path:
 **The bottlenecks worth knowing:**
 - Image fetch is unbounded and outside our control. If consumer storage is slow, requests are slow.
 - Embed is CPU-bound and serializes. With 16 cores, we can theoretically serve ~16 concurrent identifies at once before saturating. Beyond that, queue.
-- For batch endpoints, downloads parallelize (gather), embeds still serialize. Useful gain on the network step, no gain on the CPU step until Milo's ONNX is re-exported with a dynamic batch dim.
+- For batch endpoints, downloads parallelize via `asyncio.gather`. The
+  embed+search+rerank step is sync (Milo ONNX is `batch_size=1`), so we
+  offload each call to a worker thread via `asyncio.to_thread` —
+  `onnxruntime` releases the GIL during inference, so multi-core CPUs
+  actually parallelize. With Python's default 12-worker pool you should
+  see roughly N× speedup up to 4-6× before memory-bandwidth contention
+  kicks in. A true batch-dimensioned ONNX export would still be more
+  efficient.
 
 ---
 

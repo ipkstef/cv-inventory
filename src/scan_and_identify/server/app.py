@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
@@ -153,7 +154,12 @@ def create_app(state: AppState) -> FastAPI:
         except FetchError as e:
             raise HTTPException(status_code=400, detail=f"Could not fetch image: {e}") from e
         try:
-            result = state.pipeline.identify(
+            # pipeline.identify is sync (Milo ONNX + numpy + pHash). Offload to a
+            # thread so the asyncio event loop stays responsive to other requests.
+            # The default thread pool is bounded (~12 workers on mtg-eye); concurrent
+            # batches will queue rather than oversubscribe the CPU.
+            result = await asyncio.to_thread(
+                state.pipeline.identify,
                 image=image,
                 set_ids=req.set_ids,
                 top_k=req.top_k,
@@ -170,8 +176,6 @@ def create_app(state: AppState) -> FastAPI:
 
     @router.post("/identify-batch", response_model=IdentifyBatchResponse)
     async def identify_batch(req: IdentifyBatchRequest) -> dict:
-        import asyncio
-
         async def one(item):
             try:
                 image = await fetch_image(item.image_url)
@@ -184,7 +188,10 @@ def create_app(state: AppState) -> FastAPI:
                     "error": f"fetch failed: {e}",
                 }
             try:
-                result = state.pipeline.identify(
+                # See /identify above for the rationale. With N=58 items in a batch
+                # and a 12-worker pool, expect ~5× wall-clock speedup vs serial.
+                result = await asyncio.to_thread(
+                    state.pipeline.identify,
                     image=image,
                     set_ids=req.set_ids,
                     top_k=req.top_k,

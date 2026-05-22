@@ -89,6 +89,77 @@ All endpoints require `Authorization: Bearer $SCAN_AND_IDENTIFY_API_KEY`.
 **Full reference:** [`docs/API.md`](docs/API.md). The "Website Responsibilities"
 section there is required reading for anyone integrating against this API.
 
+## Identification accuracy & how the disambiguation works
+
+Magic cards are visually hard to identify *at the product level*. A single
+card name (e.g. "Chain Lightning") can exist as 6+ separate `product_id`s
+across sets, with near-identical artwork. A single set can have the same
+card in multiple frame treatments (base, borderless, showcase, retro frame),
+each its own `product_id`. Pure visual embedding gets you to the right
+*card* but not always the right *product*.
+
+This API uses **three orthogonal disambiguation signals**, each addressing
+a different failure mode:
+
+| Signal | Where | Catches |
+|---|---|---|
+| **Milo embedding** (Visual, 128-dim) | every request | Cards that look generally distinct from each other |
+| **Name-region pHash** (Visual, 64-bit DCT) | every request, blended at 15% weight | Different cards whose full-card embeddings collide by accident |
+| **Set lock** (Semantic, operator-provided) | when website passes `set_ids` | Cross-set reprints of the same card (same art, different `product_id`) |
+
+The first two run unconditionally — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+for the rerank formula. The third requires the consumer website to pass
+`set_ids: list[int]` on the identify request when the operator knows what
+set(s) the physical stack came from.
+
+### Measured impact: set lock A/B (DMR, 76 scans, 2026-05-21)
+
+A real batch of 76 Dominaria Remastered scans, sent twice — once without
+`set_ids`, once with `set_ids=[17670]`:
+
+| Metric | Unlocked | Locked | Δ |
+|---|---|---|---|
+| `good` tier (auto-accept) | 7 | **12** | **+71%** |
+| `fair` tier (suggest review) | 27 | **38** | **+41%** |
+| `poor` tier (must review) | 42 | **26** | **−38%** |
+| `good + fair` combined | 45% (34/76) | **66% (50/76)** | **+21 pp** |
+| Median gap (top-1 minus top-2) | 0.047 | **0.085** | **+80%** |
+| Top-1 `product_id` flipped by lock | — | **24/76 (32%)** | — |
+| Tier upgrades / downgrades | — | 22 / 2 | 11:1 ratio |
+
+**32% of scans had their top-1 product_id swapped** to a different
+`product_id` after locking — every one of those is a cross-set reprint
+the unlocked embedder couldn't resolve. The 2 downgrades are scans where
+within-DMR variant clusters are tighter than the cross-set leak that
+removal exposed: a known, expected edge case.
+
+### What we have not measured
+
+To keep this section honest about what we know vs. don't:
+
+- **Per-scan accuracy (top-1 == ground truth) is not measured.** Logs have
+  product_ids but no ground-truth labels. The website's correction UI
+  is the only source of ground truth and we haven't piped that back yet.
+- **pHash's independent contribution is not measured.** The architecture
+  exists to catch a class of failure (different cards whose embeddings
+  collide) but we have no pre-pHash production traffic to compare against.
+  When the failure mode in a batch is *same-card cross-printing*, pHash
+  on the name region cannot help — both candidates share an identical
+  name region.
+- **Confidence tier thresholds** (`good`/`fair`/`poor`) are calibrated
+  against a 172-scan eval done before this API existed. They may drift
+  as catalog refreshes change the score distribution.
+
+### Practical implication for the consumer website
+
+If you have *any* hint about what set the operator is scanning — a batch
+metadata field, a UI set picker, the box label — pass it as `set_ids`.
+The 21-point swing in auto-acceptable tier rate is the single biggest
+lever you have over scan quality, by a wide margin.
+
+If a batch genuinely spans multiple known sets, pass them all:
+`set_ids=[17670, 23445]`. Union semantics; strict (404 on unknown id).
+
 ## Catalog refresh (monthly)
 
 When TCGplayer ships new products (new sets), refresh the catalog:

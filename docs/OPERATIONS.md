@@ -1,8 +1,6 @@
-# scan-and-identify Operations Runbook
+# Operations
 
-Everything you need to deploy, refresh, and observe the running system.
-
----
+Deploy, refresh, and observe.
 
 ## Environment variables
 
@@ -20,9 +18,7 @@ Everything you need to deploy, refresh, and observe the running system.
 | `SCAN_AND_IDENTIFY_CONF_POOR_GAP` | no | `0.05` | Below this gap → `poor`. |
 | `AWS_DEFAULT_REGION` | no | `auto` | Set by boto3 for R2; usually not needed. |
 
-The container will fail fast at boot with `ConfigError: Missing required environment variables: ...` if any required var is unset. Wire that into your alerting.
-
----
+The container fails fast at boot with `ConfigError` if any required var is unset.
 
 ## Deployment
 
@@ -47,8 +43,6 @@ cp .env.example .env && nano .env   # fill in secrets
 docker compose pull && docker compose up -d
 ```
 
-That's the whole production deploy. No git clone, no LFS, no Docker build on the host.
-
 Rollback to a specific image SHA: edit `docker-compose.yml` to pin
 `ghcr.io/ipkstef/scan-and-identify:<sha>` and `docker compose up -d`.
 
@@ -61,117 +55,59 @@ Rollback to a specific image SHA: edit `docker-compose.yml` to pin
 | Disk | 500 MB image + ~150 MB R2 cache | Image is heaviest from baked-in catalog + onnxruntime |
 | Network | minimal | Image-fetch latency is bounded by consumer storage, not by us |
 
-Single container handles **~10-20 RPS** depending on rotation-invariance and image-fetch latency. To go higher: scale horizontally with N replicas behind any load balancer. The API is stateless — round-robin LB is fine, no sticky sessions needed.
-
----
+Single container handles ~10-20 RPS depending on rotation-invariance and
+image-fetch latency. Scale horizontally with N replicas behind a
+round-robin load balancer; no sticky sessions needed.
 
 ## Catalog refresh (monthly)
 
-TCGplayer ships new products roughly monthly; refresh the catalog so they're
-identifiable. The whole refresh is one script + one button click + one
-`docker compose pull`.
-
-### 1. Generate a new NPZ
-
-On any machine with Docker, the repo cloned (with LFS), and a populated
-`.env`:
-
 ```bash
+# On any machine with Docker, the repo cloned (LFS), and a populated .env:
 cd scan-and-identify
 ./scripts/refresh-catalog.sh
-```
 
-The script runs entirely inside the existing Docker image — no Python venv,
-no AWS CLI, no host toolchain. It:
-
-1. Pulls the latest `products.parquet` from R2.
-2. Downloads any new card images (existing cache reused — typical month is a
-   few hundred new products on top of ~110k cached).
-3. Re-embeds the full catalog **and computes name-region pHashes** (~75 min CPU; the slow step).
-4. Writes the result to `catalogs/catalog.npz` and bakes a `built_at`
-   timestamp into the NPZ.
-
-Image cache lives at `~/scan-and-identify-cache/` by default; override with
-`IMAGE_CACHE=/path/to/cache`. Other knobs: `RATE`, `CONCURRENCY`, `IMAGE_TAG`.
-
-### 2. Commit + trigger CI
-
-```bash
+# Then:
 git add catalogs/catalog.npz
 git commit -m "Refresh catalog $(date +%Y-%m)"
 git push
-```
 
-Then in GitHub: **Actions → Build image → Run workflow**. CI builds a new
-image tagged with the SHA + `:latest` and pushes to GHCR. ~3-5 min.
-
-### 3. Deploy
-
-On the production host:
-
-```bash
+# In GitHub: Actions → Build image → Run workflow (3-5 min).
+# On production:
 docker compose pull && docker compose up -d
 ```
 
-Container restarts with the new image and the new catalog. ~10s downtime.
+The script runs inside the existing Docker image. It pulls the latest
+`products.parquet` from R2, downloads any new images (existing cache
+reused), re-embeds the full catalog + computes name-region pHashes
+(~75 min CPU, the slow step), and writes `catalogs/catalog.npz`.
+
+Image cache lives at `~/scan-and-identify-cache/` by default; override
+with `IMAGE_CACHE=/path/to/cache`. Other knobs: `RATE`, `CONCURRENCY`,
+`IMAGE_TAG`.
+
+The image cache persists between runs, so an interrupted refresh resumes
+where it stopped (downloads only — embed always re-runs the full set).
 
 ### Catalog versioning
 
-The NPZ embeds an `algo_key` field. Current servers require `milo1+phash1`
-(Milo embedder + 64-bit name-region pHash). Older `milo1` catalogs are
-**rejected at boot** with a clear `ValueError` — there is no silent
-fallback to embedding-only. If you roll back the server image to a
-pre-pHash version, you must also roll the catalog back to a `milo1`-tagged
-NPZ. The image and the catalog move together.
-
-### Performance tuning
-
-- The download phase is rate-limited. We observed clean 40 req/s on
-  Cloudflare-fronted TCGplayer CDN with zero throttling — push higher
-  cautiously (`RATE=60`) and monitor for 429/503.
-- The embed phase is CPU-bound and serial because Milo's ONNX is exported
-  with `batch_size=1`. ~25 products/sec is the ceiling without an
-  engine-side fix.
-
-### Resume if the build dies
-
-The image cache persists between runs; re-running the refresh script skips
-anything already downloaded. The embed pass re-embeds everything (we don't
-incrementally update the NPZ), but downloads are the slow part — embed-only
-after a crash is ~75 min vs ~90 min for the full pipeline.
-
----
+The NPZ embeds an `algo_key` field. Current servers require
+`milo1+phash1`; older `milo1` catalogs are rejected at boot. If you roll
+back the server image to a pre-pHash version, roll the catalog back too.
 
 ## Nightly restart for fresh prices
 
-Parquets are a **boot-time snapshot** — once loaded into the in-memory
-`TCGStore`, they don't auto-refresh. TCGplayer publishes new prices roughly
-daily, so a container that runs for two weeks serves two-week-old prices.
-
-Cheapest fix: restart the container every night. R2 sync at boot detects
-the updated parquets and reloads them. Downtime per restart is ~5-10
-seconds (catalog + parquet reload).
-
-Pick a quiet hour (3am local is fine for most use cases):
+Parquets are a boot-time snapshot; TCGStore doesn't auto-refresh.
+TCGplayer publishes new prices roughly daily, so a long-running container
+serves stale prices. Restart on cron:
 
 ```bash
-# On the host running the container:
 sudo crontab -e
 # Add:
 0 3 * * * docker restart scan-and-identify >/dev/null 2>&1
 ```
 
-Or as a systemd timer if you prefer. If your website handles brief 5xx
-gracefully (it should — networks blip), this is invisible to users.
-
-If you ever need fresher than daily, two next steps would be:
-- Add a `POST /admin/refresh` endpoint that re-syncs parquets without a restart.
-- Background asyncio task inside the container that periodically swaps the
-  TCGStore atomically.
-
-Neither is built yet. Restart-on-cron is the v1 answer.
-
----
+Downtime is ~5-10 seconds per restart. A `POST /admin/refresh` endpoint
+would let you skip the restart; not built yet.
 
 ## Observability
 
@@ -207,35 +143,17 @@ curl -s -H "Authorization: Bearer $KEY" http://localhost:8000/sets | jq '.sets[:
 
 ### Logs
 
-The container logs to stdout in uvicorn's default format. To capture:
-
-```bash
-docker logs -f scan-and-identify
-docker logs scan-and-identify 2>&1 | grep -iE "error|warning"
-```
-
-In production you'd ship these to your log aggregator of choice. There's nothing structured-logging-aware in scan-and-identify today; logs are plain text.
-
----
+Plain text on stdout, uvicorn's default format. `docker logs -f
+scan-and-identify` to tail. Per-identify scoring telemetry lives on lines
+prefixed `identify scan_id=`, greppable for tier mix / score distribution
+analysis.
 
 ## Rotating the API key
 
-Generate a new key, update the website's secret, then redeploy with `SCAN_AND_IDENTIFY_API_KEY=<newkey>`:
+Generate a new key, update the website's secret, then redeploy with the
+new value in `.env`. Single shared key in v1; no zero-downtime rotation.
 
-```bash
-NEWKEY=$(openssl rand -base64 48 | tr -d '=+/' | head -c 48)
-echo "SCAN_AND_IDENTIFY_API_KEY=$NEWKEY"
-# Update website secret, then:
-docker stop scan-and-identify && docker rm scan-and-identify
-docker run -d --name scan-and-identify --restart=unless-stopped -p 8000:8000 \
-  --env-file /etc/scan-and-identify/.env  scan-and-identify:latest
-```
-
-No graceful rotation supported in v1 (single shared key). If you need zero-downtime rotation, you'd want per-key auth — not implemented.
-
----
-
-## Common failures and what they mean
+## Common failures
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -251,8 +169,3 @@ No graceful rotation supported in v1 (single shared key). If you need zero-downt
 
 ---
 
-## When NOT to use this runbook
-
-- For website / consumer-side issues. The website owns batches, corrections, image lifecycle — see `docs/API.md` "Website Responsibilities."
-- For embedder accuracy issues. Those go through the engine fork (`ipkstef/CollectorVision`), not this repo.
-- For TCGplayer parquet content issues (e.g. broken `oracle_text_plain`). Those are with the parquet maintainer / upstream of R2.

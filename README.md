@@ -1,23 +1,19 @@
 # scan-and-identify
 
-Stateless HTTP API that identifies cards from scanned images and emits
-TCGplayer-compatible CSV exports. Wraps the
-[CollectorVision](https://github.com/ipkstef/CollectorVision) inference engine
-with a TCGplayer metadata layer.
+HTTP API that identifies Magic cards from scanned images and renders
+TCGplayer seller-template CSV exports. Wraps the
+[CollectorVision](https://github.com/ipkstef/CollectorVision) engine with a
+TCGplayer metadata layer.
 
-- **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- **API contract + website responsibilities:** [`docs/API.md`](docs/API.md)
-- **Operations runbook:** [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+See [`docs/API.md`](docs/API.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+and [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Deploy
 
-Two paths. Pick whichever fits.
+### Production: pull the pre-built image
 
-### Production (recommended): pull pre-built image
-
-The GitHub Actions "Build image" workflow publishes images to
-`ghcr.io/ipkstef/scan-and-identify`. Use the published image directly — no
-git clone with LFS, no Docker build, no Python toolchain required on the host.
+CI publishes images to `ghcr.io/ipkstef/scan-and-identify`. No git clone,
+no Docker build on the host.
 
 ```bash
 # One-time host setup
@@ -39,11 +35,11 @@ docker compose pull && docker compose up -d
 curl -H "Authorization: Bearer $YOUR_KEY" http://localhost:8000/health
 ```
 
-To deploy a new image after CI builds one: `docker compose pull && docker compose up -d`.
+Deploy a new image after CI builds one: `docker compose pull && docker compose up -d`.
 
-### Local development / first build
+### Local build
 
-When you're hacking on the code or don't want to wait on CI:
+When hacking on the code or not waiting on CI:
 
 ```bash
 sudo apt install -y docker.io docker-compose-plugin git git-lfs
@@ -67,9 +63,7 @@ Required env vars (see `.env.example` for the full list):
 | `R2_TCGPLAYER_BUCKET_SECRET_KEY` | Same. |
 | `R2_TCGPLAYER_URL` | `https://<account-id>.r2.cloudflarestorage.com` |
 
-R2 credentials come from the operator who owns the `tcgplayerapi` bucket.
-If that's you, find them in your Cloudflare R2 dashboard. If not, ask the
-operator.
+R2 credentials come from whoever owns the `tcgplayerapi` bucket.
 
 ## API
 
@@ -86,27 +80,19 @@ All endpoints require `Authorization: Bearer $SCAN_AND_IDENTIFY_API_KEY`.
 | `POST /products/{id}/resolve-sku` | (printing, condition, language) → sku_id + prices |
 | `POST /export/tcgplayer-csv` | Confirmed rows → TCGplayer seller-template CSV |
 
-**Full reference:** [`docs/API.md`](docs/API.md). The "Website Responsibilities"
-section there is required reading for anyone integrating against this API.
+Full reference in [`docs/API.md`](docs/API.md).
 
 ## Catalog refresh (monthly)
 
-When TCGplayer ships new products (new sets), refresh the catalog:
-
 ```bash
-# On any host with Docker + the cloned repo + .env
-scripts/refresh-catalog.sh
-git add catalogs/catalog.npz
-git commit -m "Refresh catalog"
-git push
-# Then: go to GitHub Actions → "Build image" → Run workflow
-# Then on production: docker compose pull && docker compose up -d
+scripts/refresh-catalog.sh                            # ~75 min CPU
+git add catalogs/catalog.npz && git commit -m "Refresh" && git push
+# GitHub Actions → Build image → Run workflow
+docker compose pull && docker compose up -d           # on production
 ```
 
-The refresh runs in the existing Docker image, so the build host doesn't need
-a Python venv or AWS CLI. The image cache (`~/scan-and-identify-cache/` by
-default) persists between runs — typical monthly refresh only downloads the
-few hundred new product images, then re-embeds the full catalog (~75 min CPU).
+The refresh runs inside the existing Docker image. Image cache lives at
+`~/scan-and-identify-cache/` by default and persists between runs.
 
 ## Development
 
@@ -114,9 +100,8 @@ few hundred new product images, then re-embeds the full catalog (~75 min CPU).
 uv venv -p 3.12
 source .venv/bin/activate
 uv pip install -e ".[dev]"
-pytest tests/ -v
+pytest
 ruff check src/ tests/
 ```
 
-The test suite uses synthetic fixtures and needs neither R2 nor a real
-catalog. Always green expected.
+Tests use synthetic fixtures — no R2 or real catalog needed.
